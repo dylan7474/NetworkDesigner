@@ -490,6 +490,23 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Category: Users & Personas -->
+                <div>
+                    <h3 class="text-[11px] font-semibold text-sky-400 tracking-wider uppercase mb-2">Users & Personas</h3>
+                    <div class="space-y-1.5">
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'user')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-sky-950/60 border border-sky-500/30 flex items-center justify-center text-sky-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 20c0-4 3.5-7 8-7s8 3 8 7"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">User / Persona</div>
+                                <div class="text-[10px] text-slate-400 truncate">Tag with an access role, drop in a zone</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Drag Hint Footer -->
@@ -850,6 +867,15 @@
                 powerKW: 0,
                 defaultPorts: 4,
                 specs: { provider: 'AWS / Azure / GCP', region: 'Multi-Region', connectivity: 'Direct Connect / ExpressRoute' }
+            },
+            user: {
+                name: 'User / Persona',
+                category: 'user',
+                icon: '<svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 20c0-4 3.5-7 8-7s8 3 8 7"></path></svg>',
+                color: 'border-sky-500/50 bg-slate-900',
+                powerKW: 0,
+                defaultPorts: 1,
+                specs: { accessMethod: 'VPN / Direct Login', department: 'IT Operations' }
             }
         };
 
@@ -919,6 +945,11 @@
             third_party: { label: 'Third-Party / Vendor', abbr: '3RD', color: '#f97316' }
         };
 
+        /* Hypervisor cluster zones: styling, and the role/cap used to detect & count member hosts */
+        const CLUSTER_ZONE_STYLE = { color: '#a855f7' };
+        const CLUSTER_HOST_ROLE = 'hypervisor';
+        const CLUSTER_MAX_HOSTS = 3;
+
         /* Colors auto-assigned to newly created VLANs, cycled by creation order */
         const VLAN_COLOR_PALETTE = ['#f59e0b', '#8b5cf6', '#22c55e', '#ec4899', '#06b6d4', '#eab308', '#f43f5e', '#84cc16', '#6366f1', '#14b8a6'];
 
@@ -942,6 +973,7 @@
             counter: 1,
             zoneCounter: 1,
             cableCounter: 1,
+            vmCounter: 1,
             selectedNodeId: null,
             selectedConnectionId: null,
             selectedZoneId: null,
@@ -980,7 +1012,7 @@
         function buildExportPayload() {
             return {
                 app: 'DCIM-Architect-Studio',
-                version: '2.2',
+                version: '2.3',
                 timestamp: new Date().toISOString(),
                 state: {
                     nodes: state.nodes,
@@ -989,7 +1021,8 @@
                     vlans: state.vlans,
                     counter: state.counter,
                     zoneCounter: state.zoneCounter,
-                    cableCounter: state.cableCounter
+                    cableCounter: state.cableCounter,
+                    vmCounter: state.vmCounter
                 }
             };
         }
@@ -1117,14 +1150,17 @@
                 status: 'Healthy',
                 powerKW: archetype.powerKW,
                 notes: 'Primary production unit.',
-                role: 'none'
+                role: 'none',
+                userType: archetypeKey === 'user' ? 'dc_user' : ''
             };
             if (nodeData.role === undefined) nodeData.role = 'none';
+            if (nodeData.userType === undefined) nodeData.userType = archetypeKey === 'user' ? 'dc_user' : '';
 
             state.nodes[id] = nodeData;
             renderNodeElement(nodeData);
             updateSummaryStats();
             selectNode(id);
+            refreshZoneDerivedState();
             scheduleAutosave();
             return nodeData;
         }
@@ -1133,16 +1169,22 @@
             const meta = COMPONENT_METADATA[data.archetypeKey];
             const existing = document.getElementById(data.id);
             if (existing) existing.remove();
+            const isUser = meta.category === 'user';
+            const violation = isUser && checkUserAccessViolation(data);
+
             const nodeEl = document.createElement('div');
             nodeEl.id = data.id;
-            nodeEl.className = `absolute pointer-events-auto cursor-move transition-shadow duration-150 rounded-xl border-2 ${meta.color} p-3 w-52 shadow-xl backdrop-blur-md bg-slate-900/90 hover:border-indigo-400 select-none group`;
+            nodeEl.className = `absolute pointer-events-auto cursor-move transition-shadow duration-150 rounded-xl border-2 ${meta.color} p-3 w-52 shadow-xl backdrop-blur-md bg-slate-900/90 hover:border-indigo-400 select-none group${violation ? ' ring-2 ring-red-500 ring-offset-2 ring-offset-slate-950' : ''}`;
             nodeEl.style.left = `${data.x}px`;
             nodeEl.style.top = `${data.y}px`;
 
-            const roleTag = data.role && ROLE_TAGS[data.role] && data.role !== 'none' ? ROLE_TAGS[data.role] : null;
+            const badgeTag = isUser
+                ? (data.userType && ACCESS_ROLES[data.userType] ? ACCESS_ROLES[data.userType] : null)
+                : (data.role && ROLE_TAGS[data.role] && data.role !== 'none' ? ROLE_TAGS[data.role] : null);
 
             nodeEl.innerHTML = `
-                ${roleTag ? `<div class="absolute -top-2.5 -right-2 px-1.5 py-0.5 rounded text-[9px] font-bold text-white shadow whitespace-nowrap" style="background:${roleTag.color}" title="${escapeHtml(roleTag.label)}">${escapeHtml(roleTag.abbr)}</div>` : ''}
+                ${badgeTag ? `<div class="absolute -top-2.5 -right-2 px-1.5 py-0.5 rounded text-[9px] font-bold text-white shadow whitespace-nowrap" style="background:${badgeTag.color}" title="${escapeHtml(badgeTag.label)}">${escapeHtml(badgeTag.abbr)}</div>` : ''}
+                ${violation ? `<div class="absolute -top-2.5 -left-2 px-1 py-0.5 rounded bg-red-600 text-white shadow" title="This user is not authorized for the zone they're placed in"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg></div>` : ''}
                 <div class="flex items-center justify-between gap-2 pb-2 border-b border-slate-800">
                     <div class="flex items-center gap-2 min-w-0">
                         <div class="p-1.5 rounded-lg bg-slate-800 border border-slate-700/80 shrink-0">
@@ -1225,6 +1267,7 @@
                     window.removeEventListener('mousemove', activeDrag.onMove);
                     window.removeEventListener('mouseup', activeDrag.onUp);
                     activeDrag = null;
+                    refreshZoneDerivedState();
                     scheduleAutosave();
                 }
             };
@@ -1434,6 +1477,7 @@
         function setVlanHighlight(vlanId) {
             state.highlightVlanId = vlanId || null;
             renderConnections();
+            updateInspector();
         }
 
         function createVlan(id, name, subnet) {
@@ -1475,11 +1519,17 @@
             state.connections.forEach(c => {
                 if (c.vlanIds) c.vlanIds = c.vlanIds.filter(v => v !== id);
             });
+            // Clear this VLAN from any guest VMs assigned to it
+            Object.values(state.zones).forEach(z => {
+                (z.guestVMs || []).forEach(vm => {
+                    if (vm.vlanId === id) vm.vlanId = '';
+                });
+            });
             if (state.highlightVlanId === id) state.highlightVlanId = null;
             renderVlanHighlightSelect();
             renderVlanManagerList();
             renderConnections();
-            if (state.selectedConnectionId) updateInspector();
+            updateInspector();
             scheduleAutosave();
             showToast(`VLAN ${id} deleted.`, 'info');
         }
@@ -1530,6 +1580,7 @@
             if (checked && !zone.accessRoles.includes(roleKey)) zone.accessRoles.push(roleKey);
             if (!checked) zone.accessRoles = zone.accessRoles.filter(r => r !== roleKey);
             renderZoneElement(zone);
+            refreshZoneDerivedState();
             scheduleAutosave();
         }
 
@@ -1689,6 +1740,20 @@
                             </div>
                             ` : ''}
 
+                            ${meta.category === 'user' ? `
+                            <div>
+                                <label class="text-[10px] text-slate-400 uppercase font-semibold">User Type</label>
+                                <select onchange="updateNodeUserType('${node.id}', this.value)" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 mt-0.5">
+                                    ${Object.entries(ACCESS_ROLES).map(([key, role]) => `<option value="${key}" ${(node.userType || '') === key ? 'selected' : ''}>${escapeHtml(role.label)}</option>`).join('')}
+                                </select>
+                            </div>
+                            ${checkUserAccessViolation(node) ? `
+                            <div class="p-2 rounded border border-red-700 bg-red-950/30 text-[11px] text-red-400">
+                                ⚠ This user's type isn't in the Authorized Access list of the zone they're placed in.
+                            </div>
+                            ` : ''}
+                            ` : ''}
+
                             <div>
                                 <label class="text-[10px] text-slate-400 uppercase font-semibold">System Notes</label>
                                 <textarea onchange="updateNodeNotes('${node.id}', this.value)" rows="2" class="w-full bg-slate-800 text-xs text-white p-2 rounded border border-slate-700 mt-0.5 focus:border-brand-500 focus:outline-none">${escapeHtml(node.notes || '')}</textarea>
@@ -1775,6 +1840,11 @@
                 inspectorBadge.textContent = 'Zone Selected';
                 inspectorBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-amber-900/60 text-amber-300 font-mono border border-amber-700/50';
 
+                const zoneType = zone.zoneType || 'purdue';
+                const isCluster = zoneType === 'cluster';
+                const hostCount = isCluster ? countClusterHosts(zone) : 0;
+                const overCap = hostCount > CLUSTER_MAX_HOSTS;
+
                 inspectorContent.innerHTML = `
                     <div class="space-y-3">
                         <div>
@@ -1783,11 +1853,69 @@
                         </div>
 
                         <div>
+                            <label class="text-[10px] text-slate-400 uppercase font-semibold">Zone Type</label>
+                            <select onchange="updateZoneType('${zone.id}', this.value)" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 mt-0.5">
+                                <option value="purdue" ${!isCluster ? 'selected' : ''}>Purdue / Security Zone</option>
+                                <option value="cluster" ${isCluster ? 'selected' : ''}>Hypervisor Cluster</option>
+                            </select>
+                        </div>
+
+                        ${!isCluster ? `
+                        <div>
                             <label class="text-[10px] text-slate-400 uppercase font-semibold">Purdue / Security Level</label>
                             <select onchange="updateZoneLevel('${zone.id}', this.value)" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 mt-0.5">
                                 ${Object.entries(ZONE_LEVELS).map(([key, cfg]) => `<option value="${key}" ${zone.level === key ? 'selected' : ''}>${escapeHtml(cfg.label)}</option>`).join('')}
                             </select>
                         </div>
+                        ` : `
+                        <div class="p-2 rounded border ${overCap ? 'border-red-700 bg-red-950/30' : 'border-slate-700 bg-slate-800/60'}">
+                            <div class="flex items-center justify-between text-[11px]">
+                                <span class="text-slate-300">Detected Hosts (role: Hypervisor Host)</span>
+                                <span class="font-mono font-semibold ${overCap ? 'text-red-400' : 'text-slate-200'}">${hostCount} / ${CLUSTER_MAX_HOSTS}</span>
+                            </div>
+                            ${overCap ? `<p class="text-[10px] text-red-400 mt-1">Exceeds the recommended ${CLUSTER_MAX_HOSTS}-node cluster size.</p>` : `<p class="text-[10px] text-slate-500 mt-1">Tag a device's Server Role as "Hypervisor Host" and place it inside this zone to be counted.</p>`}
+                        </div>
+
+                        <div class="pt-2 border-t border-slate-800">
+                            <div class="flex items-center justify-between mb-1.5">
+                                <span class="text-[10px] text-slate-400 uppercase font-semibold">Guest VMs (${(zone.guestVMs || []).length})</span>
+                                <button onclick="addGuestVM('${zone.id}')" class="text-[10px] px-2 py-0.5 rounded bg-brand-600 hover:bg-brand-700 text-white font-medium transition">+ Add Guest VM</button>
+                            </div>
+                            <div class="space-y-2 max-h-64 overflow-y-auto">
+                                ${(zone.guestVMs || []).length === 0 ? '<p class="text-[11px] text-slate-500 italic">No guest VMs yet.</p>' : ''}
+                                ${(zone.guestVMs || []).map(vm => {
+                                    const dimmed = state.highlightVlanId && vm.vlanId !== state.highlightVlanId;
+                                    return `
+                                    <div class="p-2 bg-slate-800/60 rounded border border-slate-700/60 space-y-1.5 transition-opacity" style="opacity:${dimmed ? 0.3 : 1}">
+                                        <div class="flex items-center gap-1.5">
+                                            <input type="text" value="${escapeHtml(vm.name)}" onchange="updateGuestVM('${zone.id}', '${vm.id}', 'name', this.value)" class="flex-1 min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700 focus:border-brand-500 focus:outline-none">
+                                            <button onclick="deleteGuestVM('${zone.id}', '${vm.id}')" class="text-slate-400 hover:text-red-400 p-1 rounded hover:bg-slate-700 transition shrink-0" title="Remove Guest VM">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                            </button>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-1.5">
+                                            <select onchange="updateGuestVM('${zone.id}', '${vm.id}', 'role', this.value)" class="w-full min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700">
+                                                ${Object.entries(ROLE_TAGS).map(([key, tag]) => `<option value="${key}" ${(vm.role || 'none') === key ? 'selected' : ''}>${escapeHtml(tag.label)}</option>`).join('')}
+                                            </select>
+                                            <select onchange="updateGuestVM('${zone.id}', '${vm.id}', 'vlanId', this.value)" class="w-full min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700">
+                                                <option value="">No VLAN</option>
+                                                ${Object.values(state.vlans).sort((a, b) => Number(a.id) - Number(b.id)).map(v => `<option value="${escapeHtml(v.id)}" ${vm.vlanId === v.id ? 'selected' : ''}>VLAN ${escapeHtml(v.id)}${v.name ? ' — ' + escapeHtml(v.name) : ''}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-1.5">
+                                            <input type="text" placeholder="IP Address" value="${escapeHtml(vm.ip || '')}" onchange="updateGuestVM('${zone.id}', '${vm.id}', 'ip', this.value)" class="w-full min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700 font-mono focus:border-brand-500 focus:outline-none">
+                                            <select onchange="updateGuestVM('${zone.id}', '${vm.id}', 'status', this.value)" class="w-full min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700">
+                                                <option value="Healthy" ${vm.status === 'Healthy' ? 'selected' : ''}>Healthy</option>
+                                                <option value="Warning" ${vm.status === 'Warning' ? 'selected' : ''}>Warning</option>
+                                                <option value="Maintenance" ${vm.status === 'Maintenance' ? 'selected' : ''}>Maintenance</option>
+                                                <option value="Offline" ${vm.status === 'Offline' ? 'selected' : ''}>Offline</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                `; }).join('')}
+                            </div>
+                        </div>
+                        `}
 
                         <p class="text-[10px] text-slate-500">Drag the colored tab to move the zone. Drag the bottom-right corner handle to resize it.</p>
 
@@ -1868,6 +1996,17 @@
             state.nodes[id].role = val;
             renderNodeElement(state.nodes[id]);
             selectNode(id);
+            refreshZoneDerivedState();
+            scheduleAutosave();
+        }
+
+        function updateNodeUserType(id, val) {
+            if (!state.nodes[id]) return;
+            state.nodes[id].userType = val;
+            renderNodeElement(state.nodes[id]);
+            selectNode(id);
+            refreshZoneDerivedState();
+            updateInspector();
             scheduleAutosave();
         }
 
@@ -1909,6 +2048,7 @@
             if (state.selectedNodeId === nodeId) clearSelection();
             renderConnections();
             updateSummaryStats();
+            refreshZoneDerivedState();
             scheduleAutosave();
             showToast('Device removed from architecture.', 'info');
         }
@@ -1964,10 +2104,14 @@
                 id,
                 label: `Zone ${state.zoneCounter - 1}`,
                 level: 'custom',
+                zoneType: 'purdue',
                 accessRoles: [],
+                guestVMs: [],
                 x, y, width, height
             };
             if (!zoneData.accessRoles) zoneData.accessRoles = [];
+            if (!zoneData.guestVMs) zoneData.guestVMs = [];
+            if (!zoneData.zoneType) zoneData.zoneType = 'purdue';
             state.zones[id] = zoneData;
             renderZoneElement(zoneData);
             updateSummaryStats();
@@ -1976,11 +2120,55 @@
             return zoneData;
         }
 
+        // Counts nodes tagged with the hypervisor host role whose center falls within a cluster zone's bounds
+        function countClusterHosts(data) {
+            return Object.values(state.nodes).filter(n => {
+                if (n.role !== CLUSTER_HOST_ROLE) return false;
+                const c = getNodeCenter(n);
+                return c.x >= data.x && c.x <= data.x + data.width && c.y >= data.y && c.y <= data.y + data.height;
+            }).length;
+        }
+
+        // Returns every zone whose rectangle geometrically contains a node's center point
+        function getContainingZones(node) {
+            const c = getNodeCenter(node);
+            return Object.values(state.zones).filter(z =>
+                c.x >= z.x && c.x <= z.x + z.width && c.y >= z.y && c.y <= z.y + z.height
+            );
+        }
+
+        // A User/Persona node is a violation if it sits inside at least one zone, but none of the
+        // zones containing it list that user's persona as an authorized access role. A user placed
+        // outside any zone (e.g. a remote/VPN user) is not flagged — there's nothing to authorize against.
+        function checkUserAccessViolation(node) {
+            if (!node.userType) return false;
+            const zones = getContainingZones(node);
+            if (zones.length === 0) return false;
+            return !zones.some(z => (z.accessRoles || []).includes(node.userType));
+        }
+
+        // Re-renders every hypervisor cluster zone (host/VM count badges) and every User/Persona node
+        // (access-violation styling) so they stay accurate after nodes or zones are created, deleted,
+        // moved, or re-tagged. Reapplies the selection ring afterward since re-rendering replaces the DOM node.
+        function refreshZoneDerivedState() {
+            Object.values(state.zones).forEach(z => {
+                if (z.zoneType === 'cluster') renderZoneElement(z);
+            });
+            Object.values(state.nodes).forEach(n => {
+                if (n.archetypeKey === 'user') renderNodeElement(n);
+            });
+            if (state.selectedNodeId) {
+                const el = document.getElementById(state.selectedNodeId);
+                if (el) el.classList.add('node-selected');
+            }
+        }
+
         function renderZoneElement(data) {
             const existing = document.getElementById(data.id);
             if (existing) existing.remove();
 
-            const cfg = ZONE_LEVELS[data.level] || ZONE_LEVELS.custom;
+            const isCluster = data.zoneType === 'cluster';
+            const cfg = isCluster ? CLUSTER_ZONE_STYLE : (ZONE_LEVELS[data.level] || ZONE_LEVELS.custom);
             const el = document.createElement('div');
             el.id = data.id;
             el.className = 'absolute rounded-lg pointer-events-none';
@@ -1988,17 +2176,32 @@
             el.style.top = `${data.y}px`;
             el.style.width = `${data.width}px`;
             el.style.height = `${data.height}px`;
-            el.style.border = `2px dashed ${cfg.color}`;
-            el.style.backgroundColor = hexToRgba(cfg.color, 0.07);
+            el.style.border = `2px ${isCluster ? 'solid' : 'dashed'} ${cfg.color}`;
+            el.style.backgroundColor = hexToRgba(cfg.color, isCluster ? 0.1 : 0.07);
+            // Smaller zones (e.g. a cluster drawn inside a larger security zone) stack above bigger ones,
+            // regardless of creation order, so nested zones stay visible and clickable.
+            el.style.zIndex = String(Math.max(1, 300000 - Math.round(data.width * data.height)));
 
             const accessChips = (data.accessRoles || [])
                 .filter(r => ACCESS_ROLES[r])
                 .map(r => `<span class="px-1 rounded text-[8px] font-bold" style="background:rgba(0,0,0,0.35)" title="${escapeHtml(ACCESS_ROLES[r].label)}">${escapeHtml(ACCESS_ROLES[r].abbr)}</span>`)
                 .join('');
 
+            let clusterChips = '';
+            if (isCluster) {
+                const hostCount = countClusterHosts(data);
+                const overCap = hostCount > CLUSTER_MAX_HOSTS;
+                clusterChips = `
+                    <span class="px-1 rounded text-[8px] font-bold ${overCap ? 'bg-red-600 text-white' : ''}" style="${overCap ? '' : 'background:rgba(0,0,0,0.35)'}" title="Hypervisor hosts detected in this cluster (recommended max ${CLUSTER_MAX_HOSTS})">${hostCount}/${CLUSTER_MAX_HOSTS} Hosts</span>
+                    <span class="px-1 rounded text-[8px] font-bold" style="background:rgba(0,0,0,0.35)" title="Guest VMs in this cluster">${(data.guestVMs || []).length} VMs</span>
+                `;
+            }
+
             el.innerHTML = `
                 <div class="zone-drag-handle absolute -top-3 left-3 pointer-events-auto cursor-move select-none px-2 py-0.5 rounded text-[10px] font-semibold text-white shadow whitespace-nowrap flex items-center gap-1" style="background:${cfg.color}">
+                    ${isCluster ? '<svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1"></rect><rect x="3" y="14" width="18" height="6" rx="1"></rect><circle cx="7" cy="7" r="0.8"></circle><circle cx="7" cy="17" r="0.8"></circle></svg>' : ''}
                     <span>${escapeHtml(data.label)}</span>
+                    ${clusterChips}
                     ${accessChips}
                 </div>
                 <div class="zone-resize-handle absolute -bottom-1.5 -right-1.5 w-3 h-3 rounded-sm pointer-events-auto cursor-nwse-resize border border-white/60" style="background:${cfg.color}"></div>
@@ -2033,6 +2236,7 @@
             const onUp = () => {
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
+                refreshZoneDerivedState();
                 scheduleAutosave();
             };
             window.addEventListener('mousemove', onMove);
@@ -2062,6 +2266,7 @@
             const onUp = () => {
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
+                refreshZoneDerivedState();
                 scheduleAutosave();
             };
             window.addEventListener('mousemove', onMove);
@@ -2082,6 +2287,56 @@
             scheduleAutosave();
         }
 
+        function updateZoneType(id, val) {
+            const zone = state.zones[id];
+            if (!zone) return;
+            zone.zoneType = val;
+            if (!zone.guestVMs) zone.guestVMs = [];
+            renderZoneElement(zone);
+            updateInspector();
+            refreshZoneDerivedState();
+            scheduleAutosave();
+        }
+
+        function addGuestVM(zoneId) {
+            const zone = state.zones[zoneId];
+            if (!zone) return;
+            if (!zone.guestVMs) zone.guestVMs = [];
+            const vmId = 'vm_' + (state.vmCounter++);
+            zone.guestVMs.push({
+                id: vmId,
+                name: 'New Guest VM',
+                role: 'none',
+                vlanId: '',
+                ip: '',
+                status: 'Healthy'
+            });
+            renderZoneElement(zone);
+            updateInspector();
+            scheduleAutosave();
+        }
+
+        function updateGuestVM(zoneId, vmId, field, value) {
+            const zone = state.zones[zoneId];
+            if (!zone || !zone.guestVMs) return;
+            const vm = zone.guestVMs.find(v => v.id === vmId);
+            if (!vm) return;
+            vm[field] = value;
+            // Re-render the inspector (not the canvas tab) so a VLAN change is immediately
+            // reflected by the highlight-mode dimming on this guest's roster row.
+            updateInspector();
+            scheduleAutosave();
+        }
+
+        function deleteGuestVM(zoneId, vmId) {
+            const zone = state.zones[zoneId];
+            if (!zone || !zone.guestVMs) return;
+            zone.guestVMs = zone.guestVMs.filter(v => v.id !== vmId);
+            renderZoneElement(zone);
+            updateInspector();
+            scheduleAutosave();
+        }
+
         function requestDeleteZone(zoneId) {
             const zone = state.zones[zoneId];
             showConfirmModal(
@@ -2097,6 +2352,7 @@
             delete state.zones[zoneId];
             if (state.selectedZoneId === zoneId) clearSelection();
             updateSummaryStats();
+            refreshZoneDerivedState();
             scheduleAutosave();
             showToast('Zone removed.', 'info');
         }
@@ -2135,6 +2391,7 @@
             state.counter = incomingState.counter || Object.keys(incomingState.nodes).length + 1;
             state.zoneCounter = incomingState.zoneCounter || 1;
             state.cableCounter = incomingState.cableCounter || incomingState.connections.length + 1;
+            state.vmCounter = incomingState.vmCounter || 1;
             state.vlans = incomingState.vlans || {};
             state.connections = (incomingState.connections || []).map(c => ({ vlanIds: [], ...c }));
 
@@ -2152,6 +2409,7 @@
             Object.values(incomingState.zones || {}).forEach(z => {
                 createZone(z.x, z.y, z.width, z.height, z);
             });
+            refreshZoneDerivedState();
 
             renderConnections();
             renderVlanHighlightSelect();
@@ -2447,9 +2705,53 @@
             toggleZoneAccessRole('zone_seed_l3', 'dc_user', true);
             toggleZoneAccessRole('zone_seed_l3', 'dc_manager', true);
 
+            // Hypervisor cluster: a Cluster-type zone nested inside its own Purdue security zone,
+            // holding up to 3 hosts and a small guest VM roster spanning multiple server types.
+            createZone(140, 710, 560, 410, { id: 'zone_seed_l3v', label: 'Level 3 — Virtualization Farm', level: 'l3', zoneType: 'purdue', accessRoles: ['dc_manager', 'network_ops'], guestVMs: [], x: 140, y: 710, width: 560, height: 410 });
+            createZone(165, 920, 460, 170, {
+                id: 'zone_seed_cluster',
+                label: 'Prod Hypervisor Cluster',
+                zoneType: 'cluster',
+                accessRoles: ['dc_manager', 'network_ops'],
+                guestVMs: [
+                    { id: 'vm_seed_1', name: 'AD-DC01 (Domain Controller)', role: 'ad', vlanId: '10', ip: '10.240.10.21', status: 'Healthy' },
+                    { id: 'vm_seed_2', name: 'WEB-APP02', role: 'webapp', vlanId: '10', ip: '10.240.10.22', status: 'Healthy' },
+                    { id: 'vm_seed_3', name: 'DB-SQL03', role: 'database', vlanId: '20', ip: '10.240.20.15', status: 'Healthy' }
+                ],
+                x: 165, y: 920, width: 460, height: 170
+            });
+            state.vmCounter = 4;
+            state.zoneCounter = 6;
+
+            const hv1 = createNode('server', 185, 935);
+            updateNodeLabel(hv1.id, 'Hypervisor Host 01');
+            updateNodeRole(hv1.id, 'hypervisor');
+
+            const hv2 = createNode('server', 400, 935);
+            updateNodeLabel(hv2.id, 'Hypervisor Host 02');
+            updateNodeRole(hv2.id, 'hypervisor');
+
+            const cHv1 = createConnection(sw1.id, hv1.id, 'copper');
+            const cHv2 = createConnection(sw1.id, hv2.id, 'copper');
+            [cHv1, cHv2].forEach(c => {
+                toggleConnectionVlan(c.id, '10', true);
+                toggleConnectionVlan(c.id, '20', true);
+                toggleConnectionVlan(c.id, '99', true);
+            });
+
+            // Example User/Persona objects: one compliant with its zone's Authorized Access list,
+            // one flagged (red ring) to demonstrate the access-compliance check.
+            const contractor = createNode('user', 170, 730);
+            updateNodeLabel(contractor.id, 'Contractor Remote Access');
+            updateNodeUserType(contractor.id, 'third_party');
+
+            const opsManager = createNode('user', 420, 730);
+            updateNodeLabel(opsManager.id, 'Ops Manager (On-site)');
+            updateNodeUserType(opsManager.id, 'dc_manager');
+
             clearSelection();
             scheduleAutosave();
-            showToast('Loaded multi-DC reference architecture with Purdue zones, VLANs & roles!', 'success');
+            showToast('Loaded multi-DC reference architecture with a hypervisor cluster & user personas!', 'success');
         }
 
         window.addEventListener('DOMContentLoaded', bootApp);
