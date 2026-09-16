@@ -178,6 +178,10 @@
             <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5.586a1 1 0 01.707.293l7.414 7.414a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0L4.879 11.707A1 1 0 014.586 11V5a2 2 0 012-2z"></path></svg>
             <span>Manage VLANs</span>
         </button>
+        <button onclick="openFirewallMatrix()" title="Generate a cross-zone traffic rule matrix from the current design (documentation aid, not a deployable config)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md text-[11px] text-slate-200 font-medium flex items-center gap-1.5 transition shrink-0">
+            <svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+            <span>Firewall Rules</span>
+        </button>
         <div class="flex-1"></div>
         <button onclick="copyShareLink()" title="Copy a link that reproduces this exact design for someone else to open (snapshot, not live sync)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md text-[11px] text-purple-300 font-medium flex items-center gap-1.5 transition shrink-0">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
@@ -628,6 +632,43 @@
         </div>
     </div>
 
+    <!-- Firewall Rule Matrix Modal -->
+    <div id="firewall-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center hidden">
+        <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-3xl w-full p-5 shadow-2xl mx-4 max-h-[85vh] flex flex-col">
+            <div class="flex items-center justify-between mb-1 shrink-0">
+                <h4 class="font-semibold text-sm text-white">Firewall Rule Matrix</h4>
+                <button onclick="closeFirewallMatrix()" class="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <p class="text-[10px] text-slate-500 mb-3">Derived from cabling that crosses a zone boundary. This is a design-intent reference for documentation and review — not a deployable device configuration. Power links and intra-zone traffic are excluded.</p>
+
+            <div id="firewall-summary" class="text-[11px] text-slate-300 mb-2 shrink-0"></div>
+
+            <div class="overflow-auto border border-slate-800 rounded-lg flex-1">
+                <table class="w-full text-[11px] border-collapse">
+                    <thead class="sticky top-0 bg-slate-800 text-slate-400">
+                        <tr class="text-left">
+                            <th class="py-1.5 px-2 font-semibold">Source Zone</th>
+                            <th class="py-1.5 px-2 font-semibold">Dest Zone</th>
+                            <th class="py-1.5 px-2 font-semibold">Source Device</th>
+                            <th class="py-1.5 px-2 font-semibold">Dest Device</th>
+                            <th class="py-1.5 px-2 font-semibold">Service</th>
+                            <th class="py-1.5 px-2 font-semibold">VLANs</th>
+                            <th class="py-1.5 px-2 font-semibold">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="firewall-matrix-body"></tbody>
+                </table>
+            </div>
+
+            <div class="pt-3 flex gap-2 shrink-0">
+                <button onclick="exportFirewallMatrixCSV()" class="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-xs text-slate-200 font-medium transition">Export CSV</button>
+                <button onclick="closeFirewallMatrix()" class="flex-1 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded text-xs font-medium transition">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notifications -->
     <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
@@ -899,6 +940,12 @@
             l0: { label: 'Level 0 — Physical Process', color: '#64748b' },
             custom: { label: 'Custom Zone / Site Grouping', color: '#ec4899' }
         };
+
+        /* The Purdue model's core security requirement: OT (Level 0-3) and IT (Level 4-5) must
+           only ever talk through the Industrial DMZ (3.5) — a direct link between the two groups
+           is the headline violation the firewall rule matrix checks for. */
+        const PURDUE_OT_LEVELS = ['l0', 'l1', 'l2', 'l3'];
+        const PURDUE_IT_LEVELS = ['l4', 'l5'];
 
         /* Common environment roles that can be tagged onto compute hardware (rack/server/storage/backup/kvm) */
         const ROLE_TAGS = {
@@ -2161,6 +2208,119 @@
                 const el = document.getElementById(state.selectedNodeId);
                 if (el) el.classList.add('node-selected');
             }
+        }
+
+        // ---- Firewall Rule Matrix ----
+
+        // The security zone that most specifically bounds a node: the smallest-area zone
+        // (by the same nesting rule used for z-index) among non-cluster zones containing its
+        // center. Cluster zones are virtualization groupings, not security tiers, so they're
+        // excluded here even though a node can sit inside both a cluster and its parent zone.
+        function findContainingSecurityZone(node) {
+            const candidates = getContainingZones(node).filter(z => z.zoneType !== 'cluster');
+            if (candidates.length === 0) return null;
+            return candidates.reduce((best, z) => (z.width * z.height < best.width * best.height ? z : best));
+        }
+
+        const FIREWALL_SERVICE_BY_CABLE = {
+            fiber: 'IP / Ethernet',
+            copper: 'IP / Ethernet',
+            bms: 'Modbus/TCP (502)',
+            security: 'RTSP / HTTPS (554/443)'
+        };
+
+        // Builds one rule per cable that crosses a zone boundary (same-zone and unzoned-to-unzoned
+        // traffic is excluded as not security-relevant). Flags any rule that links an OT zone
+        // (Level 0-3) directly to an IT zone (Level 4-5) without passing through the Industrial DMZ.
+        function buildFirewallRuleMatrix() {
+            const rules = [];
+            state.connections.forEach(conn => {
+                if (conn.type === 'power') return; // not a network path
+                const n1 = state.nodes[conn.from];
+                const n2 = state.nodes[conn.to];
+                if (!n1 || !n2) return;
+
+                const z1 = findContainingSecurityZone(n1);
+                const z2 = findContainingSecurityZone(n2);
+                const zoneKey1 = z1 ? z1.id : null;
+                const zoneKey2 = z2 ? z2.id : null;
+                if (zoneKey1 === zoneKey2) return; // same zone, or both unzoned — not a boundary crossing
+
+                let violation = null;
+                if (z1 && z2) {
+                    const otToIt = (PURDUE_OT_LEVELS.includes(z1.level) && PURDUE_IT_LEVELS.includes(z2.level)) ||
+                        (PURDUE_OT_LEVELS.includes(z2.level) && PURDUE_IT_LEVELS.includes(z1.level));
+                    if (otToIt) violation = 'Direct OT ↔ IT link — must be brokered by the Industrial DMZ (Level 3.5)';
+                }
+
+                rules.push({
+                    sourceZone: z1 ? z1.label : 'Unzoned',
+                    destZone: z2 ? z2.label : 'Unzoned',
+                    sourceDevice: n1.label,
+                    destDevice: n2.label,
+                    service: FIREWALL_SERVICE_BY_CABLE[conn.type] || (CABLE_CONFIGS[conn.type] || {}).name || conn.type,
+                    vlans: (conn.vlanIds || []).map(id => state.vlans[id] ? `VLAN ${state.vlans[id].id}` : null).filter(Boolean).join(', '),
+                    violation
+                });
+            });
+            return rules;
+        }
+
+        function renderFirewallMatrix() {
+            const rules = buildFirewallRuleMatrix();
+            const violationCount = rules.filter(r => r.violation).length;
+
+            document.getElementById('firewall-summary').innerHTML = `
+                <span class="font-mono text-slate-200">${rules.length}</span> cross-zone rule${rules.length === 1 ? '' : 's'} found
+                ${violationCount > 0 ? `— <span class="font-mono text-red-400 font-semibold">${violationCount}</span> flagged as policy violation${violationCount === 1 ? '' : 's'}` : '— no OT/IT boundary violations detected'}
+            `;
+
+            const body = document.getElementById('firewall-matrix-body');
+            if (rules.length === 0) {
+                body.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-slate-500 italic">No cross-zone cabling found. Draw zones around your devices and cable across them to populate this matrix.</td></tr>`;
+                return;
+            }
+
+            body.innerHTML = rules.map(r => `
+                <tr class="border-t border-slate-800 ${r.violation ? 'bg-red-950/30' : ''}">
+                    <td class="py-1.5 px-2 text-slate-200 whitespace-nowrap">${escapeHtml(r.sourceZone)}</td>
+                    <td class="py-1.5 px-2 text-slate-200 whitespace-nowrap">${escapeHtml(r.destZone)}</td>
+                    <td class="py-1.5 px-2 text-slate-300 whitespace-nowrap">${escapeHtml(r.sourceDevice)}</td>
+                    <td class="py-1.5 px-2 text-slate-300 whitespace-nowrap">${escapeHtml(r.destDevice)}</td>
+                    <td class="py-1.5 px-2 font-mono text-cyan-300 whitespace-nowrap">${escapeHtml(r.service)}</td>
+                    <td class="py-1.5 px-2 font-mono text-slate-400 whitespace-nowrap">${escapeHtml(r.vlans || '—')}</td>
+                    <td class="py-1.5 px-2 whitespace-nowrap ${r.violation ? 'text-red-400 font-semibold' : 'text-emerald-400'}" title="${escapeHtml(r.violation || '')}">${r.violation ? '⚠ Violation' : 'Allow'}</td>
+                </tr>
+            `).join('');
+        }
+
+        function openFirewallMatrix() {
+            renderFirewallMatrix();
+            document.getElementById('firewall-modal').classList.remove('hidden');
+        }
+
+        function closeFirewallMatrix() {
+            document.getElementById('firewall-modal').classList.add('hidden');
+        }
+
+        function exportFirewallMatrixCSV() {
+            const rules = buildFirewallRuleMatrix();
+            const header = ['Source Zone', 'Dest Zone', 'Source Device', 'Dest Device', 'Service', 'VLANs', 'Status', 'Notes'];
+            const csvEscape = v => `"${String(v).replace(/"/g, '""')}"`;
+            const rows = rules.map(r => [
+                r.sourceZone, r.destZone, r.sourceDevice, r.destDevice, r.service, r.vlans,
+                r.violation ? 'Violation' : 'Allow', r.violation || ''
+            ].map(csvEscape).join(','));
+            const csv = [header.map(csvEscape).join(','), ...rows].join('\n');
+
+            const dataStr = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute('href', dataStr);
+            downloadAnchor.setAttribute('download', `firewall_rule_matrix_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+            showToast('Rule matrix exported to CSV', 'success');
         }
 
         function renderZoneElement(data) {
