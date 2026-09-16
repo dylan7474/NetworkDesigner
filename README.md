@@ -16,8 +16,13 @@ A browser-based data center infrastructure and network topology designer. Drag e
 - **Typed cabling** between devices — fiber, copper, power, BMS/Modbus, and IP security links, each rendered with distinct styling
 - **Purdue security zones** — draw labeled zone regions and tag them with a Purdue Enterprise Reference Architecture level (Level 5 down to Level 0, including the 3.5/IDMZ tier) or a custom grouping, to show which tier each device sits in
 - **Live inspector panel** for editing device labels, IPs, status, power draw, and notes, or zone labels/levels
+- **Server role tagging** — tag compute hardware with a common environment role (Bastion/Jump Host, Active Directory, DNS, NTP, Database, Web/App, Proxy, RADIUS, and more), shown as a colored badge on the device card
+- **Zone access control** — tag each zone with the personas authorized to access it (DC User, DC Manager, Network Ops, Security Officer, CCTV Support, Door/Badge Access Support, Facilities Technician, Storage Admin, Auditor), shown as chips on the zone's label tab
+- **VLAN tagging & highlight mode** — define a VLAN directory (ID, name, subnet), tag cables as access or 802.1Q trunk links, and isolate any single VLAN's path across the whole diagram with one dropdown
 - **Design summary stats** — node count, active links, zone count, and estimated total power load
-- **Save / Load as JSON** — export the full topology (devices, cabling, zones) to a file and reload it later
+- **Autosave** — the current design is continuously saved to this browser's local storage, so a reload or accidental tab close won't lose work
+- **Shareable links** — copy a compressed, self-contained link that reproduces your exact design for a colleague to open (a one-time snapshot, not live co-editing — no backend involved)
+- **Save / Load as JSON** — export the full topology (devices, cabling, zones, VLANs) to a file and reload it later
 
 ## Getting started
 
@@ -35,8 +40,11 @@ This is a single self-contained HTML file with no dependencies to install and no
 1. Drag a component from the left-hand catalog onto the canvas (or click a card to drop it at the canvas center).
 2. Select **Cable Link**, choose a cable type from the dropdown, then click a source device followed by a destination device to connect them.
 3. Select **Zone**, then click-drag on empty canvas space to draw a zone. Click its colored label tab to rename it or change its Purdue/security level; drag the tab to move it, or the bottom-right handle to resize it.
-4. Click any device, cable, or zone to inspect and edit its properties in the right-hand panel.
-5. Use **Save JSON** / **Load** in the header to export or reimport a complete design.
+4. Click any device, cable, or zone to inspect and edit its properties in the right-hand panel — including a Server Role for compute hardware, or Authorized Access roles for a zone.
+5. Use **Manage VLANs** in the toolbar to define VLANs, then tag them onto a selected cable from its inspector. Use the **Highlight** dropdown next to it to isolate one VLAN's path across the whole diagram.
+6. Use **Save JSON** / **Load** in the header to export or reimport a complete design, or **Copy Share Link** to hand someone a one-time snapshot of the current design without a file.
+
+Your work is autosaved to this browser automatically — no login and no server involved, so it won't follow you to another browser or device unless you use Save JSON / Share Link.
 
 ## Tech stack
 

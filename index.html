@@ -101,6 +101,10 @@
                 </h1>
                 <p class="text-[11px] text-slate-400">Data Center Infrastructure & Network Topology Studio</p>
             </div>
+            <div id="autosave-status" class="flex items-center gap-1.5 text-[10px] text-slate-500 pl-3 ml-1 border-l border-slate-800" title="Design is autosaved to this browser">
+                <span id="autosave-status-dot" class="w-1.5 h-1.5 rounded-full bg-emerald-500 transition-colors"></span>
+                <span id="autosave-status-text">Saved locally</span>
+            </div>
         </div>
 
         <!-- Mode & Tool Selectors -->
@@ -163,6 +167,23 @@
             </button>
         </div>
     </header>
+
+    <!-- SECONDARY TOOLBAR: VLAN tagging/highlight and sharing -->
+    <div class="h-11 bg-slate-900/60 border-b border-slate-800 px-4 flex items-center gap-3 shrink-0 z-20">
+        <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold shrink-0">VLANs</span>
+        <select id="vlan-highlight-select" onchange="setVlanHighlight(this.value)" class="bg-slate-900 text-slate-300 text-xs rounded border border-slate-700 px-2 py-1 focus:outline-none focus:border-brand-500 cursor-pointer max-w-[220px]">
+            <option value="">Highlight: None</option>
+        </select>
+        <button onclick="openVlanManager()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md text-[11px] text-slate-200 font-medium flex items-center gap-1.5 transition shrink-0">
+            <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5.586a1 1 0 01.707.293l7.414 7.414a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0L4.879 11.707A1 1 0 014.586 11V5a2 2 0 012-2z"></path></svg>
+            <span>Manage VLANs</span>
+        </button>
+        <div class="flex-1"></div>
+        <button onclick="copyShareLink()" title="Copy a link that reproduces this exact design for someone else to open (snapshot, not live sync)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md text-[11px] text-purple-300 font-medium flex items-center gap-1.5 transition shrink-0">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+            <span>Copy Share Link</span>
+        </button>
+    </div>
 
     <div class="flex-1 flex overflow-hidden relative">
         
@@ -566,6 +587,30 @@
         </div>
     </div>
 
+    <!-- VLAN Directory Manager Modal -->
+    <div id="vlan-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center hidden">
+        <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-5 shadow-2xl mx-4 max-h-[80vh] flex flex-col">
+            <div class="flex items-center justify-between mb-3 shrink-0">
+                <h4 class="font-semibold text-sm text-white">VLAN Directory</h4>
+                <button onclick="closeVlanManager()" class="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div id="vlan-list" class="space-y-1.5 overflow-y-auto mb-3"></div>
+
+            <div class="pt-3 border-t border-slate-800 space-y-2 shrink-0">
+                <span class="text-[10px] text-slate-400 uppercase font-semibold">Add VLAN</span>
+                <div class="grid grid-cols-3 gap-2">
+                    <input id="vlan-new-id" type="number" min="1" max="4094" placeholder="ID" class="col-span-1 bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 focus:border-brand-500 focus:outline-none">
+                    <input id="vlan-new-name" type="text" placeholder="Name" class="col-span-2 bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 focus:border-brand-500 focus:outline-none">
+                </div>
+                <input id="vlan-new-subnet" type="text" placeholder="Subnet / CIDR (optional), e.g. 10.10.20.0/24" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 focus:border-brand-500 focus:outline-none">
+                <button onclick="addVlanFromForm()" class="w-full py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded text-xs font-medium transition">Add VLAN</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notifications -->
     <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
@@ -829,6 +874,41 @@
             custom: { label: 'Custom Zone / Site Grouping', color: '#ec4899' }
         };
 
+        /* Common environment roles that can be tagged onto compute hardware (rack/server/storage/backup/kvm) */
+        const ROLE_TAGS = {
+            none: { label: 'No Role Assigned', abbr: '', color: '#64748b' },
+            bastion: { label: 'Bastion / Jump Host', abbr: 'BSN', color: '#f97316' },
+            ad: { label: 'Active Directory / Domain Controller', abbr: 'AD', color: '#3b82f6' },
+            dns: { label: 'DNS Server', abbr: 'DNS', color: '#14b8a6' },
+            ntp: { label: 'NTP / Time Server', abbr: 'NTP', color: '#06b6d4' },
+            fileserver: { label: 'File / Print Server', abbr: 'FS', color: '#8b5cf6' },
+            ca: { label: 'Certificate Authority (PKI)', abbr: 'CA', color: '#ec4899' },
+            monitoring: { label: 'Monitoring / Syslog', abbr: 'MON', color: '#22c55e' },
+            database: { label: 'Database Server', abbr: 'DB', color: '#eab308' },
+            webapp: { label: 'Web / App Server', abbr: 'APP', color: '#6366f1' },
+            proxy: { label: 'Proxy / Reverse Proxy', abbr: 'PXY', color: '#f43f5e' },
+            radius: { label: 'RADIUS / AAA', abbr: 'AAA', color: '#84cc16' },
+            backup_target: { label: 'Backup Target', abbr: 'BKP', color: '#78716c' }
+        };
+
+        /* Personas authorized to access/manage a zone — a physical & operational access-control layer on top of Purdue levels */
+        const ACCESS_ROLES = {
+            dc_user: { label: 'DC User (General Access)', abbr: 'USR', color: '#38bdf8' },
+            dc_manager: { label: 'DC Manager (Full Access)', abbr: 'MGR', color: '#a855f7' },
+            network_ops: { label: 'Network Operations', abbr: 'NOC', color: '#6366f1' },
+            security_officer: { label: 'Security Officer', abbr: 'SEC', color: '#ef4444' },
+            cctv_support: { label: 'CCTV Support', abbr: 'CCTV', color: '#d946ef' },
+            door_access_support: { label: 'Door / Badge Access Support', abbr: 'DOOR', color: '#f43f5e' },
+            facilities_tech: { label: 'Facilities / HVAC Technician', abbr: 'FAC', color: '#f59e0b' },
+            storage_admin: { label: 'Storage / Backup Admin', abbr: 'STOR', color: '#10b981' },
+            auditor: { label: 'Auditor (Read-Only)', abbr: 'AUD', color: '#64748b' }
+        };
+
+        /* Colors auto-assigned to newly created VLANs, cycled by creation order */
+        const VLAN_COLOR_PALETTE = ['#f59e0b', '#8b5cf6', '#22c55e', '#ec4899', '#06b6d4', '#eab308', '#f43f5e', '#84cc16', '#6366f1', '#14b8a6'];
+
+        const AUTOSAVE_KEY = 'dcim-architect-autosave-v1';
+
         // Escapes user-controlled text before it is interpolated into innerHTML templates
         function escapeHtml(str) {
             return String(str)
@@ -843,8 +923,10 @@
             nodes: {},
             connections: [],
             zones: {},
+            vlans: {},
             counter: 1,
             zoneCounter: 1,
+            cableCounter: 1,
             selectedNodeId: null,
             selectedConnectionId: null,
             selectedZoneId: null,
@@ -852,7 +934,8 @@
             zoom: 1.0,
             mode: 'select', // 'select', 'connect', or 'zone'
             activeCableType: 'fiber',
-            connectingSourceId: null
+            connectingSourceId: null,
+            highlightVlanId: null
         };
 
         // Cache DOM elements
@@ -869,8 +952,55 @@
         const toolZoneBtn = document.getElementById('tool-zone');
         const snapBtn = document.getElementById('btn-snap');
         const zoomLabel = document.getElementById('zoom-label');
+        const vlanHighlightSelect = document.getElementById('vlan-highlight-select');
+        const vlanModal = document.getElementById('vlan-modal');
+        const vlanListEl = document.getElementById('vlan-list');
+        const autosaveStatusDot = document.getElementById('autosave-status-dot');
+        const autosaveStatusText = document.getElementById('autosave-status-text');
 
         document.getElementById('palette-count').textContent = `${Object.keys(COMPONENT_METADATA).length} Items`;
+
+        // ---- Persistence: autosave to localStorage, plus shared export/import payload building ----
+
+        function buildExportPayload() {
+            return {
+                app: 'DCIM-Architect-Studio',
+                version: '2.2',
+                timestamp: new Date().toISOString(),
+                state: {
+                    nodes: state.nodes,
+                    connections: state.connections,
+                    zones: state.zones,
+                    vlans: state.vlans,
+                    counter: state.counter,
+                    zoneCounter: state.zoneCounter,
+                    cableCounter: state.cableCounter
+                }
+            };
+        }
+
+        let autosaveTimer = null;
+        let autosaveFailedWarned = false;
+
+        function scheduleAutosave() {
+            if (autosaveTimer) clearTimeout(autosaveTimer);
+            autosaveStatusDot.className = 'w-1.5 h-1.5 rounded-full bg-amber-400 transition-colors';
+            autosaveStatusText.textContent = 'Saving…';
+            autosaveTimer = setTimeout(() => {
+                try {
+                    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(buildExportPayload()));
+                    autosaveStatusDot.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500 transition-colors';
+                    autosaveStatusText.textContent = 'Saved locally';
+                } catch (err) {
+                    autosaveStatusDot.className = 'w-1.5 h-1.5 rounded-full bg-red-500 transition-colors';
+                    autosaveStatusText.textContent = 'Autosave failed';
+                    if (!autosaveFailedWarned) {
+                        autosaveFailedWarned = true;
+                        showToast('Autosave failed (browser storage full or blocked). Use Save JSON to avoid losing work.', 'warning');
+                    }
+                }
+            }, 350);
+        }
 
         // Converts a mouse/pointer event's screen coordinates into world-space coordinates,
         // accounting for canvas scroll offset and current zoom level.
@@ -971,13 +1101,16 @@
                 ip: `10.240.${Math.floor(Math.random() * 10) + 1}.${Math.floor(Math.random() * 254) + 1}`,
                 status: 'Healthy',
                 powerKW: archetype.powerKW,
-                notes: 'Primary production unit.'
+                notes: 'Primary production unit.',
+                role: 'none'
             };
+            if (nodeData.role === undefined) nodeData.role = 'none';
 
             state.nodes[id] = nodeData;
             renderNodeElement(nodeData);
             updateSummaryStats();
             selectNode(id);
+            scheduleAutosave();
             return nodeData;
         }
 
@@ -991,7 +1124,10 @@
             nodeEl.style.left = `${data.x}px`;
             nodeEl.style.top = `${data.y}px`;
 
+            const roleTag = data.role && ROLE_TAGS[data.role] && data.role !== 'none' ? ROLE_TAGS[data.role] : null;
+
             nodeEl.innerHTML = `
+                ${roleTag ? `<div class="absolute -top-2.5 -right-2 px-1.5 py-0.5 rounded text-[9px] font-bold text-white shadow whitespace-nowrap" style="background:${roleTag.color}" title="${escapeHtml(roleTag.label)}">${escapeHtml(roleTag.abbr)}</div>` : ''}
                 <div class="flex items-center justify-between gap-2 pb-2 border-b border-slate-800">
                     <div class="flex items-center gap-2 min-w-0">
                         <div class="p-1.5 rounded-lg bg-slate-800 border border-slate-700/80 shrink-0">
@@ -1074,6 +1210,7 @@
                     window.removeEventListener('mousemove', activeDrag.onMove);
                     window.removeEventListener('mouseup', activeDrag.onUp);
                     activeDrag = null;
+                    scheduleAutosave();
                 }
             };
 
@@ -1162,20 +1299,23 @@
                 return;
             }
 
-            const connId = 'cable_' + Date.now();
+            const connId = 'cable_' + (state.cableCounter++);
             const newConn = {
                 id: connId,
                 from: fromId,
                 to: toId,
                 type: cableType,
                 speed: CABLE_CONFIGS[cableType].name,
-                redundant: true
+                redundant: true,
+                vlanIds: []
             };
 
             state.connections.push(newConn);
             renderConnections();
             updateSummaryStats();
+            scheduleAutosave();
             showToast(`Connected with ${CABLE_CONFIGS[cableType].name}`, 'success');
+            return newConn;
         }
 
         function renderConnections() {
@@ -1190,10 +1330,14 @@
                 const p2 = getNodeCenter(n2);
                 const cfg = CABLE_CONFIGS[conn.type] || CABLE_CONFIGS.fiber;
                 const isSelected = state.selectedConnectionId === conn.id;
+                const connVlans = conn.vlanIds || [];
+                const isDimmed = state.highlightVlanId && !connVlans.includes(state.highlightVlanId);
 
                 // Create SVG group for line and interactive hitzone
                 const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
                 g.setAttribute('class', 'cursor-pointer pointer-events-auto');
+                g.style.opacity = isDimmed ? '0.12' : '1';
+                g.style.transition = 'opacity 150ms';
 
                 // Wider invisible hitzone for clicking easily
                 const hitLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
@@ -1229,6 +1373,29 @@
                 g.appendChild(line);
                 g.appendChild(badge);
 
+                // VLAN membership chips, stacked along the perpendicular of the cable near its midpoint
+                if (connVlans.length > 0) {
+                    const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x) + Math.PI / 2;
+                    connVlans.forEach((vlanId, i) => {
+                        const vlan = state.vlans[vlanId];
+                        if (!vlan) return;
+                        const offset = 10 + i * 9;
+                        const chip = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                        chip.setAttribute('x', midX + Math.cos(angle) * offset - 4);
+                        chip.setAttribute('y', midY + Math.sin(angle) * offset - 4);
+                        chip.setAttribute('width', '8');
+                        chip.setAttribute('height', '8');
+                        chip.setAttribute('rx', '2');
+                        chip.setAttribute('fill', vlan.color);
+                        chip.setAttribute('stroke', '#0f172a');
+                        chip.setAttribute('stroke-width', '1');
+                        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+                        title.textContent = `VLAN ${vlan.id}${vlan.name ? ' — ' + vlan.name : ''}`;
+                        chip.appendChild(title);
+                        g.appendChild(chip);
+                    });
+                }
+
                 g.addEventListener('click', (e) => {
                     e.stopPropagation();
                     selectConnection(conn.id);
@@ -1236,6 +1403,119 @@
 
                 cableGroup.appendChild(g);
             });
+        }
+
+        // ---- VLAN Directory ----
+
+        function renderVlanHighlightSelect() {
+            const current = state.highlightVlanId || '';
+            vlanHighlightSelect.innerHTML = '<option value="">Highlight: None</option>' +
+                Object.values(state.vlans)
+                    .sort((a, b) => Number(a.id) - Number(b.id))
+                    .map(v => `<option value="${escapeHtml(v.id)}" ${current === v.id ? 'selected' : ''}>VLAN ${escapeHtml(v.id)}${v.name ? ' — ' + escapeHtml(v.name) : ''}</option>`)
+                    .join('');
+        }
+
+        function setVlanHighlight(vlanId) {
+            state.highlightVlanId = vlanId || null;
+            renderConnections();
+        }
+
+        function createVlan(id, name, subnet) {
+            id = String(id);
+            const color = VLAN_COLOR_PALETTE[Object.keys(state.vlans).length % VLAN_COLOR_PALETTE.length];
+            state.vlans[id] = { id, name: name || '', subnet: subnet || '', color };
+            renderVlanHighlightSelect();
+            renderVlanManagerList();
+            renderConnections();
+            scheduleAutosave();
+            return state.vlans[id];
+        }
+
+        function addVlanFromForm() {
+            const idInput = document.getElementById('vlan-new-id');
+            const nameInput = document.getElementById('vlan-new-name');
+            const subnetInput = document.getElementById('vlan-new-subnet');
+            const id = idInput.value.trim();
+
+            if (!id || Number(id) < 1 || Number(id) > 4094) {
+                showToast('Enter a valid VLAN ID (1-4094).', 'warning');
+                return;
+            }
+            if (state.vlans[id]) {
+                showToast(`VLAN ${id} already exists.`, 'warning');
+                return;
+            }
+
+            createVlan(id, nameInput.value.trim(), subnetInput.value.trim());
+            showToast(`VLAN ${id} created.`, 'success');
+            idInput.value = '';
+            nameInput.value = '';
+            subnetInput.value = '';
+        }
+
+        function deleteVlan(id) {
+            delete state.vlans[id];
+            // Remove this VLAN from any cables carrying it
+            state.connections.forEach(c => {
+                if (c.vlanIds) c.vlanIds = c.vlanIds.filter(v => v !== id);
+            });
+            if (state.highlightVlanId === id) state.highlightVlanId = null;
+            renderVlanHighlightSelect();
+            renderVlanManagerList();
+            renderConnections();
+            if (state.selectedConnectionId) updateInspector();
+            scheduleAutosave();
+            showToast(`VLAN ${id} deleted.`, 'info');
+        }
+
+        function renderVlanManagerList() {
+            const vlans = Object.values(state.vlans).sort((a, b) => Number(a.id) - Number(b.id));
+            if (vlans.length === 0) {
+                vlanListEl.innerHTML = '<p class="text-[11px] text-slate-500 italic">No VLANs defined yet.</p>';
+                return;
+            }
+            vlanListEl.innerHTML = vlans.map(v => `
+                <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded border border-slate-700/60">
+                    <span class="w-3 h-3 rounded-sm shrink-0" style="background:${v.color}"></span>
+                    <div class="min-w-0 flex-1">
+                        <div class="text-xs font-medium text-slate-200 truncate">VLAN ${escapeHtml(v.id)}${v.name ? ' — ' + escapeHtml(v.name) : ''}</div>
+                        ${v.subnet ? `<div class="text-[10px] text-slate-500 font-mono truncate">${escapeHtml(v.subnet)}</div>` : ''}
+                    </div>
+                    <button onclick="deleteVlan('${escapeHtml(v.id)}')" class="text-slate-400 hover:text-red-400 p-1 rounded hover:bg-slate-700 transition shrink-0" title="Delete VLAN">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function openVlanManager() {
+            renderVlanManagerList();
+            vlanModal.classList.remove('hidden');
+        }
+
+        function closeVlanManager() {
+            vlanModal.classList.add('hidden');
+        }
+
+        function toggleConnectionVlan(connId, vlanId, checked) {
+            const conn = state.connections.find(c => c.id === connId);
+            if (!conn) return;
+            if (!conn.vlanIds) conn.vlanIds = [];
+            if (checked && !conn.vlanIds.includes(vlanId)) conn.vlanIds.push(vlanId);
+            if (!checked) conn.vlanIds = conn.vlanIds.filter(v => v !== vlanId);
+            renderConnections();
+            scheduleAutosave();
+        }
+
+        function toggleZoneAccessRole(zoneId, roleKey, checked) {
+            const zone = state.zones[zoneId];
+            if (!zone) return;
+            if (!zone.accessRoles) zone.accessRoles = [];
+            if (checked && !zone.accessRoles.includes(roleKey)) zone.accessRoles.push(roleKey);
+            if (!checked) zone.accessRoles = zone.accessRoles.filter(r => r !== roleKey);
+            renderZoneElement(zone);
+            scheduleAutosave();
         }
 
         function selectNode(nodeId) {
@@ -1385,6 +1665,15 @@
                                 </div>
                             </div>
 
+                            ${meta.category === 'compute' ? `
+                            <div>
+                                <label class="text-[10px] text-slate-400 uppercase font-semibold">Server Role</label>
+                                <select onchange="updateNodeRole('${node.id}', this.value)" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 mt-0.5">
+                                    ${Object.entries(ROLE_TAGS).map(([key, tag]) => `<option value="${key}" ${(node.role || 'none') === key ? 'selected' : ''}>${escapeHtml(tag.label)}</option>`).join('')}
+                                </select>
+                            </div>
+                            ` : ''}
+
                             <div>
                                 <label class="text-[10px] text-slate-400 uppercase font-semibold">System Notes</label>
                                 <textarea onchange="updateNodeNotes('${node.id}', this.value)" rows="2" class="w-full bg-slate-800 text-xs text-white p-2 rounded border border-slate-700 mt-0.5 focus:border-brand-500 focus:outline-none">${escapeHtml(node.notes || '')}</textarea>
@@ -1445,6 +1734,20 @@
                             <label for="conn-redundant" class="text-xs text-slate-300">Dual Path Redundant Link</label>
                         </div>
 
+                        <div class="pt-2 border-t border-slate-800">
+                            <span class="text-[10px] text-slate-400 uppercase font-semibold block mb-1.5">VLAN Tagging ${(conn.vlanIds || []).length > 1 ? '(802.1Q Trunk)' : ''}</span>
+                            <div class="space-y-1 max-h-32 overflow-y-auto">
+                                ${Object.keys(state.vlans).length === 0 ? '<p class="text-[11px] text-slate-500 italic">No VLANs defined — use Manage VLANs in the toolbar.</p>' : ''}
+                                ${Object.values(state.vlans).sort((a, b) => Number(a.id) - Number(b.id)).map(v => `
+                                    <label class="flex items-center gap-2 text-[11px] text-slate-300 bg-slate-800/60 px-2 py-1 rounded border border-slate-700/60 cursor-pointer">
+                                        <input type="checkbox" ${(conn.vlanIds || []).includes(v.id) ? 'checked' : ''} onchange="toggleConnectionVlan('${conn.id}', '${escapeHtml(v.id)}', this.checked)" class="rounded text-brand-500">
+                                        <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:${v.color}"></span>
+                                        <span class="truncate">VLAN ${escapeHtml(v.id)}${v.name ? ' — ' + escapeHtml(v.name) : ''}</span>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
+
                         <div class="pt-2">
                             <button onclick="deleteConnection('${conn.id}')" class="w-full py-1.5 bg-red-950/60 hover:bg-red-900/80 border border-red-800 text-red-300 rounded text-xs transition font-medium">Remove Cable</button>
                         </div>
@@ -1473,6 +1776,19 @@
 
                         <p class="text-[10px] text-slate-500">Drag the colored tab to move the zone. Drag the bottom-right corner handle to resize it.</p>
 
+                        <div class="pt-2 border-t border-slate-800">
+                            <span class="text-[10px] text-slate-400 uppercase font-semibold block mb-1.5">Authorized Access</span>
+                            <div class="space-y-1 max-h-40 overflow-y-auto">
+                                ${Object.entries(ACCESS_ROLES).map(([key, role]) => `
+                                    <label class="flex items-center gap-2 text-[11px] text-slate-300 bg-slate-800/60 px-2 py-1 rounded border border-slate-700/60 cursor-pointer">
+                                        <input type="checkbox" ${(zone.accessRoles || []).includes(key) ? 'checked' : ''} onchange="toggleZoneAccessRole('${zone.id}', '${key}', this.checked)" class="rounded text-brand-500">
+                                        <span class="px-1 rounded text-[8px] font-bold text-white shrink-0" style="background:${role.color}">${escapeHtml(role.abbr)}</span>
+                                        <span class="truncate">${escapeHtml(role.label)}</span>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
+
                         <div class="pt-2">
                             <button onclick="requestDeleteZone('${zone.id}')" class="w-full py-1.5 bg-red-950/60 hover:bg-red-900/80 border border-red-800 text-red-300 rounded text-xs transition font-medium">Delete Zone</button>
                         </div>
@@ -1495,6 +1811,7 @@
             state.nodes[id].label = val;
             const el = document.getElementById(id);
             if (el) el.querySelector('.node-label').textContent = val;
+            scheduleAutosave();
         }
 
         function updateNodeIP(id, val) {
@@ -1502,6 +1819,7 @@
             state.nodes[id].ip = val;
             const el = document.getElementById(id);
             if (el) el.querySelector('p').textContent = val;
+            scheduleAutosave();
         }
 
         function updateNodeStatus(id, val) {
@@ -1512,6 +1830,7 @@
             renderNodeElement(state.nodes[id]);
             // Re-select to keep focus
             selectNode(id);
+            scheduleAutosave();
         }
 
         function updateNodePower(id, val) {
@@ -1520,11 +1839,21 @@
             updateSummaryStats();
             const el = document.getElementById(id);
             if (el) el.querySelector('.font-mono.text-amber-300').textContent = `${state.nodes[id].powerKW} kW`;
+            scheduleAutosave();
         }
 
         function updateNodeNotes(id, val) {
             if (!state.nodes[id]) return;
             state.nodes[id].notes = val;
+            scheduleAutosave();
+        }
+
+        function updateNodeRole(id, val) {
+            if (!state.nodes[id]) return;
+            state.nodes[id].role = val;
+            renderNodeElement(state.nodes[id]);
+            selectNode(id);
+            scheduleAutosave();
         }
 
         function updateConnectionMedia(connId, val) {
@@ -1534,12 +1863,14 @@
                 conn.speed = CABLE_CONFIGS[val].name;
                 renderConnections();
                 updateInspector();
+                scheduleAutosave();
             }
         }
 
         function updateConnectionRedundancy(connId, val) {
             const conn = state.connections.find(c => c.id === connId);
             if (conn) conn.redundant = val;
+            scheduleAutosave();
         }
 
         function requestDeleteNode(nodeId, e) {
@@ -1563,6 +1894,7 @@
             if (state.selectedNodeId === nodeId) clearSelection();
             renderConnections();
             updateSummaryStats();
+            scheduleAutosave();
             showToast('Device removed from architecture.', 'info');
         }
 
@@ -1571,6 +1903,7 @@
             if (state.selectedConnectionId === connId) clearSelection();
             renderConnections();
             updateSummaryStats();
+            scheduleAutosave();
             showToast('Cable link removed.', 'info');
         }
 
@@ -1585,10 +1918,14 @@
                     state.nodes = {};
                     state.connections = [];
                     state.zones = {};
+                    state.vlans = {};
+                    state.highlightVlanId = null;
                     state.counter = 1;
                     state.zoneCounter = 1;
                     clearSelection();
                     updateSummaryStats();
+                    renderVlanHighlightSelect();
+                    scheduleAutosave();
                     showToast('Workspace reset successfully.', 'info');
                 }
             );
@@ -1612,12 +1949,15 @@
                 id,
                 label: `Zone ${state.zoneCounter - 1}`,
                 level: 'custom',
+                accessRoles: [],
                 x, y, width, height
             };
+            if (!zoneData.accessRoles) zoneData.accessRoles = [];
             state.zones[id] = zoneData;
             renderZoneElement(zoneData);
             updateSummaryStats();
             selectZone(id);
+            scheduleAutosave();
             return zoneData;
         }
 
@@ -1636,9 +1976,15 @@
             el.style.border = `2px dashed ${cfg.color}`;
             el.style.backgroundColor = hexToRgba(cfg.color, 0.07);
 
+            const accessChips = (data.accessRoles || [])
+                .filter(r => ACCESS_ROLES[r])
+                .map(r => `<span class="px-1 rounded text-[8px] font-bold" style="background:rgba(0,0,0,0.35)" title="${escapeHtml(ACCESS_ROLES[r].label)}">${escapeHtml(ACCESS_ROLES[r].abbr)}</span>`)
+                .join('');
+
             el.innerHTML = `
-                <div class="zone-drag-handle absolute -top-3 left-3 pointer-events-auto cursor-move select-none px-2 py-0.5 rounded text-[10px] font-semibold text-white shadow whitespace-nowrap" style="background:${cfg.color}">
-                    ${escapeHtml(data.label)}
+                <div class="zone-drag-handle absolute -top-3 left-3 pointer-events-auto cursor-move select-none px-2 py-0.5 rounded text-[10px] font-semibold text-white shadow whitespace-nowrap flex items-center gap-1" style="background:${cfg.color}">
+                    <span>${escapeHtml(data.label)}</span>
+                    ${accessChips}
                 </div>
                 <div class="zone-resize-handle absolute -bottom-1.5 -right-1.5 w-3 h-3 rounded-sm pointer-events-auto cursor-nwse-resize border border-white/60" style="background:${cfg.color}"></div>
             `;
@@ -1672,6 +2018,7 @@
             const onUp = () => {
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
+                scheduleAutosave();
             };
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
@@ -1700,6 +2047,7 @@
             const onUp = () => {
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
+                scheduleAutosave();
             };
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
@@ -1709,12 +2057,14 @@
             if (!state.zones[id]) return;
             state.zones[id].label = val;
             renderZoneElement(state.zones[id]);
+            scheduleAutosave();
         }
 
         function updateZoneLevel(id, val) {
             if (!state.zones[id]) return;
             state.zones[id].level = val;
             renderZoneElement(state.zones[id]);
+            scheduleAutosave();
         }
 
         function requestDeleteZone(zoneId) {
@@ -1732,25 +2082,13 @@
             delete state.zones[zoneId];
             if (state.selectedZoneId === zoneId) clearSelection();
             updateSummaryStats();
+            scheduleAutosave();
             showToast('Zone removed.', 'info');
         }
 
         // Save layout as JSON file download
         function exportTopologyJSON() {
-            const payload = {
-                app: 'DCIM-Architect-Studio',
-                version: '2.1',
-                timestamp: new Date().toISOString(),
-                state: {
-                    nodes: state.nodes,
-                    connections: state.connections,
-                    zones: state.zones,
-                    counter: state.counter,
-                    zoneCounter: state.zoneCounter
-                }
-            };
-
-            const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
+            const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(buildExportPayload(), null, 2));
             const downloadAnchor = document.createElement('a');
             downloadAnchor.setAttribute('href', dataStr);
             downloadAnchor.setAttribute('download', `dcim_topology_${new Date().toISOString().slice(0, 10)}.json`);
@@ -1758,6 +2096,53 @@
             downloadAnchor.click();
             downloadAnchor.remove();
             showToast('Design exported to JSON file', 'success');
+        }
+
+        // Resets the live canvas and rebuilds it from a topology payload's `state` object.
+        // Shared by file import, the shared-link loader, and the autosave-restore boot path.
+        function loadTopologyState(incomingState) {
+            if (!incomingState || !incomingState.nodes || !incomingState.connections) {
+                throw new Error('Invalid DCIM topology schema');
+            }
+
+            // Reset current workspace
+            nodesContainer.innerHTML = '';
+            cableGroup.innerHTML = '';
+            zonesContainer.innerHTML = '';
+            state.nodes = {};
+            state.connections = [];
+            state.zones = {};
+            state.vlans = {};
+            state.highlightVlanId = null;
+            clearSelection();
+
+            // Load new data
+            state.counter = incomingState.counter || Object.keys(incomingState.nodes).length + 1;
+            state.zoneCounter = incomingState.zoneCounter || 1;
+            state.cableCounter = incomingState.cableCounter || incomingState.connections.length + 1;
+            state.vlans = incomingState.vlans || {};
+            state.connections = (incomingState.connections || []).map(c => ({ vlanIds: [], ...c }));
+
+            // Rebuild nodes, skipping any with an archetype this app version doesn't recognize
+            let skipped = 0;
+            Object.values(incomingState.nodes).forEach(n => {
+                if (!COMPONENT_METADATA[n.archetypeKey]) {
+                    skipped++;
+                    return;
+                }
+                createNode(n.archetypeKey, n.x, n.y, n);
+            });
+
+            // Rebuild zones
+            Object.values(incomingState.zones || {}).forEach(z => {
+                createZone(z.x, z.y, z.width, z.height, z);
+            });
+
+            renderConnections();
+            renderVlanHighlightSelect();
+            updateSummaryStats();
+            clearSelection();
+            return { skipped };
         }
 
         // Import topology from JSON file
@@ -1769,44 +2154,8 @@
             reader.onload = (e) => {
                 try {
                     const parsed = JSON.parse(e.target.result);
-                    const incomingState = parsed.state || parsed;
-
-                    if (!incomingState.nodes || !incomingState.connections) {
-                        throw new Error('Invalid DCIM topology schema');
-                    }
-
-                    // Reset current workspace
-                    nodesContainer.innerHTML = '';
-                    cableGroup.innerHTML = '';
-                    zonesContainer.innerHTML = '';
-                    state.nodes = {};
-                    state.connections = [];
-                    state.zones = {};
-                    clearSelection();
-
-                    // Load new data
-                    state.counter = incomingState.counter || Object.keys(incomingState.nodes).length + 1;
-                    state.zoneCounter = incomingState.zoneCounter || 1;
-                    state.connections = incomingState.connections || [];
-
-                    // Rebuild nodes, skipping any with an archetype this app version doesn't recognize
-                    let skipped = 0;
-                    Object.values(incomingState.nodes).forEach(n => {
-                        if (!COMPONENT_METADATA[n.archetypeKey]) {
-                            skipped++;
-                            return;
-                        }
-                        createNode(n.archetypeKey, n.x, n.y, n);
-                    });
-
-                    // Rebuild zones
-                    Object.values(incomingState.zones || {}).forEach(z => {
-                        createZone(z.x, z.y, z.width, z.height, z);
-                    });
-
-                    renderConnections();
-                    updateSummaryStats();
-                    clearSelection();
+                    const { skipped } = loadTopologyState(parsed.state || parsed);
+                    scheduleAutosave();
                     if (skipped > 0) {
                         showToast(`Topology imported with ${skipped} unrecognized device(s) skipped.`, 'warning');
                     } else {
@@ -1818,6 +2167,96 @@
             };
             reader.readAsText(file);
             event.target.value = ''; // Reset file input
+        }
+
+        // ---- Shareable link: zero-backend snapshot sharing via a compressed URL fragment ----
+
+        function toUrlSafeBase64(b64) {
+            return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        }
+
+        function fromUrlSafeBase64(safe) {
+            let b64 = safe.replace(/-/g, '+').replace(/_/g, '/');
+            while (b64.length % 4) b64 += '=';
+            return b64;
+        }
+
+        async function compressToShareToken(str) {
+            if (typeof CompressionStream === 'undefined') {
+                return 'raw.' + toUrlSafeBase64(btoa(unescape(encodeURIComponent(str))));
+            }
+            const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
+            const buf = await new Response(stream).arrayBuffer();
+            let binary = '';
+            const bytes = new Uint8Array(buf);
+            for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+            return 'gz.' + toUrlSafeBase64(btoa(binary));
+        }
+
+        async function decompressShareToken(token) {
+            const sepIndex = token.indexOf('.');
+            const tag = token.slice(0, sepIndex);
+            const data = token.slice(sepIndex + 1);
+            const binary = atob(fromUrlSafeBase64(data));
+            if (tag === 'raw') {
+                return decodeURIComponent(escape(binary));
+            }
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+            const buf = await new Response(stream).arrayBuffer();
+            return new TextDecoder().decode(buf);
+        }
+
+        const SHARE_LINK_MAX_LENGTH = 6000;
+
+        async function copyShareLink() {
+            try {
+                const token = await compressToShareToken(JSON.stringify(buildExportPayload()));
+                const url = `${location.origin}${location.pathname}#share=${token}`;
+
+                if (url.length > SHARE_LINK_MAX_LENGTH) {
+                    showToast('Design is too large for a shareable link — use Save JSON / Load instead.', 'warning');
+                    return;
+                }
+
+                try {
+                    await navigator.clipboard.writeText(url);
+                } catch (clipboardErr) {
+                    // Fallback for contexts where the async Clipboard API is unavailable (e.g. file://)
+                    const temp = document.createElement('textarea');
+                    temp.value = url;
+                    temp.style.position = 'fixed';
+                    temp.style.opacity = '0';
+                    document.body.appendChild(temp);
+                    temp.select();
+                    document.execCommand('copy');
+                    temp.remove();
+                }
+
+                showToast('Shareable link copied! Anyone who opens it gets a one-time copy of this design (not live sync).', 'success');
+            } catch (err) {
+                showToast('Could not build a shareable link: ' + err.message, 'warning');
+            }
+        }
+
+        // On boot, load a design encoded in the URL hash by copyShareLink(), if present.
+        async function loadFromShareLinkIfPresent() {
+            if (!location.hash.startsWith('#share=')) return false;
+            const token = location.hash.slice('#share='.length);
+            // Consume the hash immediately so a later refresh doesn't reload this snapshot over local edits
+            history.replaceState(null, '', location.pathname + location.search);
+            try {
+                const json = await decompressShareToken(token);
+                const parsed = JSON.parse(json);
+                loadTopologyState(parsed.state || parsed);
+                scheduleAutosave();
+                showToast('Loaded design from a shared link — now editable locally in this browser.', 'success');
+                return true;
+            } catch (err) {
+                showToast('Could not load the shared link: ' + err.message, 'warning');
+                return false;
+            }
         }
 
         function showConfirmModal(title, message, onConfirm) {
@@ -1877,7 +2316,31 @@
             }, 3000);
         }
 
-        window.addEventListener('DOMContentLoaded', () => {
+        async function bootApp() {
+            if (await loadFromShareLinkIfPresent()) return;
+
+            let autosaved = null;
+            try {
+                const raw = localStorage.getItem(AUTOSAVE_KEY);
+                if (raw) autosaved = JSON.parse(raw);
+            } catch (err) {
+                autosaved = null;
+            }
+
+            if (autosaved && autosaved.state) {
+                try {
+                    loadTopologyState(autosaved.state);
+                    showToast('Restored your autosaved session from this browser.', 'info');
+                    return;
+                } catch (err) {
+                    // Corrupt autosave payload — fall through and seed the demo instead
+                }
+            }
+
+            seedDemoLayout();
+        }
+
+        function seedDemoLayout() {
             // Seed a realistic data center reference layout
             const r1 = createNode('router', 140, 100);
             updateNodeLabel(r1.id, 'Edge WAN Router 01');
@@ -1931,10 +2394,10 @@
             // Form connections
             createConnection(r1.id, fw1.id, 'fiber');
             createConnection(fw1.id, sw1.id, 'fiber');
-            createConnection(sw1.id, rack1.id, 'copper');
-            createConnection(sw1.id, storage1.id, 'fiber');
-            createConnection(sw1.id, server1.id, 'copper');
-            createConnection(sw1.id, coreRouter1.id, 'fiber');
+            const cRack = createConnection(sw1.id, rack1.id, 'copper');
+            const cStorage = createConnection(sw1.id, storage1.id, 'fiber');
+            const cServer = createConnection(sw1.id, server1.id, 'copper');
+            const cCoreRouter = createConnection(sw1.id, coreRouter1.id, 'fiber');
             createConnection(coreRouter1.id, dcsite1.id, 'fiber');
             createConnection(coreRouter1.id, cloud1.id, 'fiber');
             createConnection(ups1.id, pdu1.id, 'power');
@@ -1944,14 +2407,37 @@
             createConnection(sw1.id, door1.id, 'security');
 
             // Example Purdue security zones, showing how devices map to enterprise/DMZ/site-operations tiers
-            createZone(110, 70, 270, 170, { id: 'zone_seed_l4', label: 'Level 4 — Enterprise WAN Edge', level: 'l4', x: 110, y: 70, width: 270, height: 170 });
-            createZone(390, 70, 270, 170, { id: 'zone_seed_l35', label: 'Level 3.5 — Industrial DMZ', level: 'l35', x: 390, y: 70, width: 270, height: 170 });
-            createZone(670, 50, 548, 520, { id: 'zone_seed_l3', label: 'Level 3 — Site Operations (MES)', level: 'l3', x: 670, y: 50, width: 548, height: 520 });
+            createZone(110, 70, 270, 170, { id: 'zone_seed_l4', label: 'Level 4 — Enterprise WAN Edge', level: 'l4', accessRoles: [], x: 110, y: 70, width: 270, height: 170 });
+            createZone(390, 70, 270, 170, { id: 'zone_seed_l35', label: 'Level 3.5 — Industrial DMZ', level: 'l35', accessRoles: [], x: 390, y: 70, width: 270, height: 170 });
+            createZone(670, 50, 548, 520, { id: 'zone_seed_l3', label: 'Level 3 — Site Operations (MES)', level: 'l3', accessRoles: [], x: 670, y: 50, width: 548, height: 520 });
             state.zoneCounter = 4;
 
+            // Example VLANs, tagged onto the access/trunk cables that carry them
+            createVlan('10', 'Compute-Access', '10.240.10.0/24');
+            createVlan('20', 'Storage-Access', '10.240.20.0/24');
+            createVlan('99', 'Mgmt-OOB', '10.240.99.0/24');
+            toggleConnectionVlan(cRack.id, '10', true);
+            toggleConnectionVlan(cServer.id, '10', true);
+            toggleConnectionVlan(cStorage.id, '20', true);
+            toggleConnectionVlan(cCoreRouter.id, '10', true);
+            toggleConnectionVlan(cCoreRouter.id, '20', true);
+            toggleConnectionVlan(cCoreRouter.id, '99', true);
+
+            // Example server role tag and zone access-control tagging
+            updateNodeRole(server1.id, 'webapp');
+            toggleZoneAccessRole('zone_seed_l4', 'network_ops', true);
+            toggleZoneAccessRole('zone_seed_l4', 'dc_manager', true);
+            toggleZoneAccessRole('zone_seed_l35', 'security_officer', true);
+            toggleZoneAccessRole('zone_seed_l35', 'network_ops', true);
+            toggleZoneAccessRole('zone_seed_l3', 'dc_user', true);
+            toggleZoneAccessRole('zone_seed_l3', 'dc_manager', true);
+
             clearSelection();
-            showToast('Loaded multi-DC reference architecture with Purdue security zones!', 'success');
-        });
+            scheduleAutosave();
+            showToast('Loaded multi-DC reference architecture with Purdue zones, VLANs & roles!', 'success');
+        }
+
+        window.addEventListener('DOMContentLoaded', bootApp);
     </script>
 </body>
 </html>

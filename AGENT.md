@@ -8,7 +8,8 @@ A single-page, client-side data center/network topology designer ("DCIM Architec
 
 - Styling: [Tailwind CSS](https://tailwindcss.com/) loaded via the Play CDN (`<script src="https://cdn.tailwindcss.com">`), plus a small `<style>` block for custom scrollbars, selection glow, and animated cable dashes.
 - Logic: vanilla JavaScript in one inline `<script>` at the bottom of `<body>`. No frameworks, no modules, no transpilation.
-- State: a single global `state` object (`nodes`, `connections`, `zones`, counters, selection, mode, zoom) plus a `COMPONENT_METADATA` catalog and `CABLE_CONFIGS` / `ZONE_LEVELS` lookup tables defined near the top of the script.
+- State: a single global `state` object (`nodes`, `connections`, `zones`, `vlans`, counters, selection, mode, zoom, `highlightVlanId`) plus lookup tables defined near the top of the script: `COMPONENT_METADATA` (device catalog), `CABLE_CONFIGS`, `ZONE_LEVELS` (Purdue levels), `ROLE_TAGS` (server software roles, e.g. Bastion/AD/DNS), and `ACCESS_ROLES` (zone access personas, e.g. DC Manager/CCTV Support).
+- Persistence: `buildExportPayload()` is the single source of truth for what a saved/shared design contains. `loadTopologyState(incomingState)` is the single source of truth for rebuilding the live canvas from one — it's shared by file import (`importTopologyJSON`), the share-link loader (`loadFromShareLinkIfPresent`), and the autosave-restore path on boot (`bootApp`). Never reimplement the reset/rebuild sequence inline elsewhere.
 
 ## Deployment
 
@@ -30,7 +31,11 @@ Because everything is one file, most changes touch multiple spots that must stay
 
 4. **`importTopologyJSON()` must stay defensive.** It accepts arbitrary files from the "Load" button. Keep validating `archetypeKey` against `COMPONENT_METADATA` before calling `createNode`, and keep resetting `nodesContainer`, `cableGroup`, and `zonesContainer` (plus `state.nodes`/`connections`/`zones`) before rebuilding, so a partially-invalid file can't leave the canvas in a mixed old/new state.
 
-5. **Keep `exportTopologyJSON()` and `importTopologyJSON()` in sync** with whatever top-level state fields exist (`nodes`, `connections`, `zones`, `counter`, `zoneCounter`, …) — if you add a new piece of persistent state, export it and restore it on import, and bump the `version` string in the exported payload if the schema changes in an incompatible way.
+5. **Keep `buildExportPayload()` and `loadTopologyState()` in sync** with whatever top-level state fields exist (`nodes`, `connections`, `zones`, `vlans`, `counter`, `zoneCounter`, `cableCounter`, …) — if you add a new piece of persistent state, include it in both functions, and bump the `version` string in `buildExportPayload()` if the schema changes in an incompatible way. These two functions back JSON export/import, the shareable-link feature, and autosave alike — fixing one without the other silently breaks the other two.
+
+6. **Call `scheduleAutosave()` at the end of every function that mutates `state`** (creating/deleting/editing a node, connection, zone, or VLAN; drag-end for nodes and zones). It's cheap and debounced (350ms), so prefer calling it defensively over trying to reason about whether a given mutation "really" needs persisting. It writes through `buildExportPayload()`, so a new state field only needs to be added there, not to every autosave call site.
+
+7. **IDs must not collide within a session.** Nodes, zones, and cables each use their own counter (`state.counter`, `state.zoneCounter`, `state.cableCounter`) rather than `Date.now()` — several can be created in the same synchronous tick (e.g. the seed demo, or a bulk import), and millisecond timestamps are not guaranteed unique across rapid calls. Follow the same counter pattern for any new entity type.
 
 ## Testing
 
