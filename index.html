@@ -113,6 +113,10 @@
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
                 <span>Cable Link</span>
             </button>
+            <button id="tool-zone" onclick="setInteractionMode('zone')" title="Draw a Purdue / Security Zone" class="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all text-slate-400 hover:text-slate-200">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 3"></rect></svg>
+                <span>Zone</span>
+            </button>
             <!-- Cable Type Selector -->
             <div class="h-4 w-px bg-slate-800 my-auto"></div>
             <select id="cable-type-select" onchange="updateCableType(this.value)" class="bg-slate-900 text-slate-300 text-xs rounded border border-slate-700 px-2 py-1 focus:outline-none focus:border-brand-500 cursor-pointer">
@@ -170,13 +174,12 @@
             </div>
 
             <div class="flex-1 overflow-y-auto p-3 space-y-4">
-                
-                <!-- Category: Compute & Core Networking -->
+
+                <!-- Category: Compute & Storage -->
                 <div>
-                    <h3 class="text-[11px] font-semibold text-indigo-400 tracking-wider uppercase mb-2">Network & Compute</h3>
+                    <h3 class="text-[11px] font-semibold text-indigo-400 tracking-wider uppercase mb-2">Compute & Storage</h3>
                     <div class="space-y-1.5">
-                        
-                        <!-- Server Rack 42U -->
+
                         <div draggable="true" ondragstart="handlePaletteDragStart(event, 'rack')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
                             <div class="w-8 h-8 rounded bg-indigo-950/60 border border-indigo-500/30 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition-transform">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="10" x2="16" y2="10"></line><line x1="8" y1="14" x2="16" y2="14"></line><line x1="8" y1="18" x2="16" y2="18"></line></svg>
@@ -187,7 +190,53 @@
                             </div>
                         </div>
 
-                        <!-- Core / Spine Switch -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'storage')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-emerald-950/60 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1"></rect><rect x="3" y="14" width="18" height="6" rx="1"></rect><circle cx="6" cy="7" r="1"></circle><circle cx="6" cy="17" r="1"></circle></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">SAN All-Flash Array</div>
+                                <div class="text-[10px] text-slate-400 truncate">NVMe-oF Tier 0 storage</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'server')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-lime-950/60 border border-lime-500/30 flex items-center justify-center text-lime-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6" rx="1"></rect><circle cx="7" cy="12" r="1"></circle><line x1="11" y1="12" x2="18" y2="12"></line></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Rack Server (1U)</div>
+                                <div class="text-[10px] text-slate-400 truncate">Individual compute node</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'backup')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-stone-950/60 border border-stone-500/30 flex items-center justify-center text-stone-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="1"></rect><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7l2-4h14l2 4"></path><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Backup & Tape Library</div>
+                                <div class="text-[10px] text-slate-400 truncate">Long-term archival storage</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'kvm')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-zinc-950/60 border border-zinc-500/30 flex items-center justify-center text-zinc-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1"></rect><line x1="8" y1="20" x2="16" y2="20"></line><line x1="12" y1="16" x2="12" y2="20"></line></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">KVM / Console Server</div>
+                                <div class="text-[10px] text-slate-400 truncate">Out-of-band mgmt access</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Category: Network & Connectivity -->
+                <div>
+                    <h3 class="text-[11px] font-semibold text-cyan-400 tracking-wider uppercase mb-2">Network & Connectivity</h3>
+                    <div class="space-y-1.5">
+
                         <div draggable="true" ondragstart="handlePaletteDragStart(event, 'switch')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
                             <div class="w-8 h-8 rounded bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center text-cyan-400 group-hover:scale-105 transition-transform">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="6" cy="12" r="1.5"></circle><circle cx="10" cy="12" r="1.5"></circle><circle cx="14" cy="12" r="1.5"></circle><circle cx="18" cy="12" r="1.5"></circle></svg>
@@ -198,18 +247,6 @@
                             </div>
                         </div>
 
-                        <!-- Enterprise Firewall -->
-                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'firewall')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
-                            <div class="w-8 h-8 rounded bg-red-950/60 border border-red-500/30 flex items-center justify-center text-red-400 group-hover:scale-105 transition-transform">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <div class="text-xs font-medium text-slate-200">NextGen Firewall</div>
-                                <div class="text-[10px] text-slate-400 truncate">Perimeter UTM & IPSec HA</div>
-                            </div>
-                        </div>
-
-                        <!-- Edge Router -->
                         <div draggable="true" ondragstart="handlePaletteDragStart(event, 'router')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
                             <div class="w-8 h-8 rounded bg-blue-950/60 border border-blue-500/30 flex items-center justify-center text-blue-400 group-hover:scale-105 transition-transform">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v18M3 12h18"></path></svg>
@@ -220,36 +257,93 @@
                             </div>
                         </div>
 
-                        <!-- SAN / NAS Storage Array -->
-                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'storage')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
-                            <div class="w-8 h-8 rounded bg-emerald-950/60 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1"></rect><rect x="3" y="14" width="18" height="6" rx="1"></rect><circle cx="6" cy="7" r="1"></circle><circle cx="6" cy="17" r="1"></circle></svg>
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'firewall')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-red-950/60 border border-red-500/30 flex items-center justify-center text-red-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <div class="text-xs font-medium text-slate-200">SAN All-Flash Array</div>
-                                <div class="text-[10px] text-slate-400 truncate">NVMe-oF Tier 0 storage</div>
+                                <div class="text-xs font-medium text-slate-200">NextGen Firewall</div>
+                                <div class="text-[10px] text-slate-400 truncate">Perimeter UTM & IPSec HA</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'loadbalancer')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-fuchsia-950/60 border border-fuchsia-500/30 flex items-center justify-center text-fuchsia-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"></circle><circle cx="5" cy="19" r="2"></circle><circle cx="19" cy="19" r="2"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 7v3m0 0l-6 7m6-7l6 7"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Load Balancer (L4/L7)</div>
+                                <div class="text-[10px] text-slate-400 truncate">VIP traffic distribution</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'core_router')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-sky-950/60 border border-sky-500/30 flex items-center justify-center text-sky-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M12 3c2.5 2.5 2.5 15.5 0 18M12 3c-2.5 2.5-2.5 15.5 0 18"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Core Router (Inter-DC)</div>
+                                <div class="text-[10px] text-slate-400 truncate">WAN backbone between sites</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'vpn')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-violet-950/60 border border-violet-500/30 flex items-center justify-center text-violet-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">VPN / SD-WAN Gateway</div>
+                                <div class="text-[10px] text-slate-400 truncate">Encrypted site-to-site tunnels</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'dns')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-teal-950/60 border border-teal-500/30 flex items-center justify-center text-teal-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"></ellipse><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">DNS / NTP Appliance</div>
+                                <div class="text-[10px] text-slate-400 truncate">Name resolution & time sync</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'patchpanel')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-gray-950/60 border border-gray-500/30 flex items-center justify-center text-gray-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="8" width="20" height="8" rx="1"></rect><line x1="6" y1="8" x2="6" y2="16"></line><line x1="10" y1="8" x2="10" y2="16"></line><line x1="14" y1="8" x2="14" y2="16"></line><line x1="18" y1="8" x2="18" y2="16"></line></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Fiber Patch Panel</div>
+                                <div class="text-[10px] text-slate-400 truncate">Structured cabling termination</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'ap')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-green-950/60 border border-green-500/30 flex items-center justify-center text-green-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12.5a10 10 0 0114 0"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.5 16a5 5 0 017 0"></path><circle cx="12" cy="19" r="1"></circle></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Wireless Access Point</div>
+                                <div class="text-[10px] text-slate-400 truncate">Wi-Fi 6E staff/guest SSIDs</div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Category: Critical Facility & HVAC -->
+                <!-- Category: Facilities & Power -->
                 <div>
                     <h3 class="text-[11px] font-semibold text-amber-400 tracking-wider uppercase mb-2">Facilities & Power</h3>
                     <div class="space-y-1.5">
-                        
-                        <!-- Industrial Chiller / CRAH -->
+
                         <div draggable="true" ondragstart="handlePaletteDragStart(event, 'chiller')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
                             <div class="w-8 h-8 rounded bg-sky-950/60 border border-sky-500/30 flex items-center justify-center text-sky-400 group-hover:scale-105 transition-transform">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2v20M2 12h20m-5-7l-4 4m-2 2l-4 4m0-8l4 4m2 2l4 4"></path></svg>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <div class="text-xs font-medium text-slate-200">CRAH / In-Row Chiller</div>
+                                <div class="text-xs font-medium text-slate-200">CRAH / Chiller Unit</div>
                                 <div class="text-[10px] text-slate-400 truncate">Chilled water cooling (N+1)</div>
                             </div>
                         </div>
 
-                        <!-- Modular UPS Unit -->
                         <div draggable="true" ondragstart="handlePaletteDragStart(event, 'ups')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
                             <div class="w-8 h-8 rounded bg-amber-950/60 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-105 transition-transform">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="7" width="18" height="12" rx="2"></rect><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 11v4M10 10l-2 3h4l-2 3"></path></svg>
@@ -260,7 +354,6 @@
                             </div>
                         </div>
 
-                        <!-- Floor PDU -->
                         <div draggable="true" ondragstart="handlePaletteDragStart(event, 'pdu')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
                             <div class="w-8 h-8 rounded bg-yellow-950/60 border border-yellow-500/30 flex items-center justify-center text-yellow-400 group-hover:scale-105 transition-transform">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
@@ -271,7 +364,6 @@
                             </div>
                         </div>
 
-                        <!-- Standby Diesel Generator -->
                         <div draggable="true" ondragstart="handlePaletteDragStart(event, 'generator')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
                             <div class="w-8 h-8 rounded bg-orange-950/60 border border-orange-500/30 flex items-center justify-center text-orange-400 group-hover:scale-105 transition-transform">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v8m-4-4h8"></path></svg>
@@ -281,15 +373,34 @@
                                 <div class="text-[10px] text-slate-400 truncate">2.5MW Auto-Transfer switch</div>
                             </div>
                         </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'rackpdu')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-lime-950/60 border border-lime-500/30 flex items-center justify-center text-lime-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"></rect><circle cx="10" cy="7" r="0.8"></circle><circle cx="14" cy="7" r="0.8"></circle><circle cx="10" cy="12" r="0.8"></circle><circle cx="14" cy="12" r="0.8"></circle><circle cx="10" cy="17" r="0.8"></circle><circle cx="14" cy="17" r="0.8"></circle></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Rack PDU (In-Row)</div>
+                                <div class="text-[10px] text-slate-400 truncate">Per-outlet metered power strip</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'firesuppression')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-red-950/60 border border-red-500/30 flex items-center justify-center text-red-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2c-3 4-6 7-6 11a6 6 0 0012 0c0-2-1-3.5-2-5 .3 1.5-.5 2.5-1.5 2.5C13 8.5 13 6 12 2z"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Fire Suppression (FM-200)</div>
+                                <div class="text-[10px] text-slate-400 truncate">Clean-agent room flood system</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Category: Physical Security & BMS -->
+                <!-- Category: Security & Access -->
                 <div>
                     <h3 class="text-[11px] font-semibold text-rose-400 tracking-wider uppercase mb-2">Security & Access</h3>
                     <div class="space-y-1.5">
-                        
-                        <!-- CCTV Dome Camera -->
+
                         <div draggable="true" ondragstart="handlePaletteDragStart(event, 'cctv')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
                             <div class="w-8 h-8 rounded bg-purple-950/60 border border-purple-500/30 flex items-center justify-center text-purple-400 group-hover:scale-105 transition-transform">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
@@ -300,18 +411,16 @@
                             </div>
                         </div>
 
-                        <!-- Biometric Door Access Control -->
                         <div draggable="true" ondragstart="handlePaletteDragStart(event, 'door')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
                             <div class="w-8 h-8 rounded bg-rose-950/60 border border-rose-500/30 flex items-center justify-center text-rose-400 group-hover:scale-105 transition-transform">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path></svg>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <div class="text-xs font-medium text-slate-200">Mantra / Biometric Door</div>
+                                <div class="text-xs font-medium text-slate-200">Mantrap / Biometric Door</div>
                                 <div class="text-[10px] text-slate-400 truncate">Dual-factor mantrap lock</div>
                             </div>
                         </div>
 
-                        <!-- Environmental / Smoke Sensor -->
                         <div draggable="true" ondragstart="handlePaletteDragStart(event, 'sensor')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
                             <div class="w-8 h-8 rounded bg-teal-950/60 border border-teal-500/30 flex items-center justify-center text-teal-400 group-hover:scale-105 transition-transform">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
@@ -322,9 +431,44 @@
                             </div>
                         </div>
 
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'siem')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-indigo-950/60 border border-indigo-500/30 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">SIEM / SOC Monitoring</div>
+                                <div class="text-[10px] text-slate-400 truncate">Centralized threat monitoring</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
+                <!-- Category: Sites & Connectivity -->
+                <div>
+                    <h3 class="text-[11px] font-semibold text-purple-400 tracking-wider uppercase mb-2">Sites & Connectivity</h3>
+                    <div class="space-y-1.5">
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'dcsite')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-slate-950/60 border border-slate-500/30 flex items-center justify-center text-slate-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1"></rect><rect x="7" y="6" width="2" height="2"></rect><rect x="11" y="6" width="2" height="2"></rect><rect x="15" y="6" width="2" height="2"></rect><rect x="7" y="10" width="2" height="2"></rect><rect x="11" y="10" width="2" height="2"></rect><rect x="15" y="10" width="2" height="2"></rect><rect x="7" y="14" width="2" height="2"></rect><rect x="11" y="14" width="2" height="2"></rect><rect x="15" y="14" width="2" height="2"></rect></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Remote Data Center Site</div>
+                                <div class="text-[10px] text-slate-400 truncate">Another facility in the estate</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'cloud')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-sky-950/60 border border-sky-500/30 flex items-center justify-center text-sky-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Public Cloud / Internet</div>
+                                <div class="text-[10px] text-slate-400 truncate">AWS / Azure / GCP connectivity</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Drag Hint Footer -->
@@ -338,7 +482,10 @@
         <main id="canvas-container" class="flex-1 h-full overflow-auto relative grid-canvas focus:outline-none" tabindex="0">
             <!-- Scalable World Frame -->
             <div id="canvas-world" class="absolute top-0 left-0 w-[3600px] h-[2600px] origin-top-left transition-transform duration-75">
-                
+
+                <!-- Purdue / Security Zone Backgrounds (drawn behind cables and nodes) -->
+                <div id="zones-container" class="absolute top-0 left-0 w-full h-full z-0 pointer-events-none"></div>
+
                 <!-- SVG Connections Layer -->
                 <svg id="svg-layer" class="absolute top-0 left-0 w-full h-full pointer-events-none z-10 overflow-visible">
                     <defs>
@@ -386,6 +533,10 @@
                 <div class="flex justify-between">
                     <span>Active Links:</span>
                     <span id="stat-links-count" class="font-mono text-slate-200">0</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Zones:</span>
+                    <span id="stat-zones-count" class="font-mono text-slate-200">0</span>
                 </div>
                 <div class="flex justify-between">
                     <span>Power Load Est:</span>
@@ -528,6 +679,132 @@
                 powerKW: 0.02,
                 defaultPorts: 2,
                 specs: { reading: '22.1°C / 44% RH', protocol: 'BACnet IP / MQTT', alertThreshold: '28.0°C Max' }
+            },
+            server: {
+                name: 'Rack Server (1U)',
+                category: 'compute',
+                icon: '<svg class="w-5 h-5 text-lime-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6" rx="1"></rect><circle cx="7" cy="12" r="1"></circle><line x1="11" y1="12" x2="18" y2="12"></line></svg>',
+                color: 'border-lime-500/50 bg-slate-900',
+                powerKW: 0.9,
+                defaultPorts: 4,
+                specs: { cpu: 'Dual Xeon Gold, 32 cores', ram: '512 GB DDR5 ECC', os: 'VMware ESXi 8.0' }
+            },
+            loadbalancer: {
+                name: 'Load Balancer (L4/L7)',
+                category: 'network',
+                icon: '<svg class="w-5 h-5 text-fuchsia-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"></circle><circle cx="5" cy="19" r="2"></circle><circle cx="19" cy="19" r="2"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 7v3m0 0l-6 7m6-7l6 7"></path></svg>',
+                color: 'border-fuchsia-500/50 bg-slate-900',
+                powerKW: 0.6,
+                defaultPorts: 8,
+                specs: { vip: '10.240.1.100 (VIP)', algorithm: 'Least Connections', ssl: 'TLS 1.3 Offload' }
+            },
+            core_router: {
+                name: 'Core Router (Inter-DC)',
+                category: 'network',
+                icon: '<svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h18M12 3c2.5 2.5 2.5 15.5 0 18M12 3c-2.5 2.5-2.5 15.5 0 18"></path></svg>',
+                color: 'border-sky-500/50 bg-slate-900',
+                powerKW: 2,
+                defaultPorts: 32,
+                specs: { wanLinks: '2x 100G DWDM Inter-DC', protocol: 'MPLS / EVPN', bandwidth: '200 Gbps Aggregate' }
+            },
+            vpn: {
+                name: 'VPN / SD-WAN Gateway',
+                category: 'network',
+                icon: '<svg class="w-5 h-5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4"></path></svg>',
+                color: 'border-violet-500/50 bg-slate-900',
+                powerKW: 0.7,
+                defaultPorts: 8,
+                specs: { tunnels: '48 Active IPSec Tunnels', encryption: 'AES-256-GCM', throughput: '10 Gbps VPN' }
+            },
+            dns: {
+                name: 'DNS / NTP Appliance',
+                category: 'network',
+                icon: '<svg class="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"></ellipse><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"></path></svg>',
+                color: 'border-teal-500/50 bg-slate-900',
+                powerKW: 0.3,
+                defaultPorts: 4,
+                specs: { zones: '12 Authoritative Zones', stratum: 'NTP Stratum 1 (GPS)', records: 'DNSSEC Enabled' }
+            },
+            backup: {
+                name: 'Backup & Tape Library',
+                category: 'compute',
+                icon: '<svg class="w-5 h-5 text-stone-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="1"></rect><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7l2-4h14l2 4"></path><line x1="10" y1="12" x2="14" y2="12"></line></svg>',
+                color: 'border-stone-500/50 bg-slate-900',
+                powerKW: 3,
+                defaultPorts: 8,
+                specs: { capacity: '2 PB Compressed', retention: '90-Day Retention Policy', dedup: 'Global Dedup 8:1' }
+            },
+            kvm: {
+                name: 'KVM / Console Server',
+                category: 'compute',
+                icon: '<svg class="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1"></rect><line x1="8" y1="20" x2="16" y2="20"></line><line x1="12" y1="16" x2="12" y2="20"></line></svg>',
+                color: 'border-zinc-500/50 bg-slate-900',
+                powerKW: 0.2,
+                defaultPorts: 16,
+                specs: { consolePorts: '32-Port Serial/KVM', protocol: 'IPMI / Serial-over-LAN', ipmi: 'Out-of-Band Mgmt' }
+            },
+            patchpanel: {
+                name: 'Fiber Patch Panel',
+                category: 'network',
+                icon: '<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="8" width="20" height="8" rx="1"></rect><line x1="6" y1="8" x2="6" y2="16"></line><line x1="10" y1="8" x2="10" y2="16"></line><line x1="14" y1="8" x2="14" y2="16"></line><line x1="18" y1="8" x2="18" y2="16"></line></svg>',
+                color: 'border-gray-500/50 bg-slate-900',
+                powerKW: 0,
+                defaultPorts: 96,
+                specs: { type: 'LC/MPO Fiber', panelU: '1U 96-Port', connectorType: 'Singlemode OS2' }
+            },
+            rackpdu: {
+                name: 'Rack PDU (In-Row)',
+                category: 'facility',
+                icon: '<svg class="w-5 h-5 text-lime-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"></rect><circle cx="10" cy="7" r="0.8"></circle><circle cx="14" cy="7" r="0.8"></circle><circle cx="10" cy="12" r="0.8"></circle><circle cx="14" cy="12" r="0.8"></circle><circle cx="10" cy="17" r="0.8"></circle><circle cx="14" cy="17" r="0.8"></circle></svg>',
+                color: 'border-lime-500/50 bg-slate-900',
+                powerKW: 0.3,
+                defaultPorts: 24,
+                specs: { voltage: '230V Single Phase', outlets: '24x C13/C19', monitored: 'Per-Outlet Metering' }
+            },
+            firesuppression: {
+                name: 'Fire Suppression (FM-200)',
+                category: 'facility',
+                icon: '<svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2c-3 4-6 7-6 11a6 6 0 0012 0c0-2-1-3.5-2-5 .3 1.5-.5 2.5-1.5 2.5C13 8.5 13 6 12 2z"></path></svg>',
+                color: 'border-red-500/50 bg-slate-900',
+                powerKW: 0.1,
+                defaultPorts: 2,
+                specs: { agent: 'FM-200 Clean Agent', coverage: 'Full Room Flood', dischargeTime: '< 10 sec' }
+            },
+            ap: {
+                name: 'Wireless Access Point',
+                category: 'network',
+                icon: '<svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12.5a10 10 0 0114 0"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.5 16a5 5 0 017 0"></path><circle cx="12" cy="19" r="1"></circle></svg>',
+                color: 'border-green-500/50 bg-slate-900',
+                powerKW: 0.02,
+                defaultPorts: 1,
+                specs: { standard: 'Wi-Fi 6E (802.11ax)', ssidCount: '4 SSIDs (Staff/Guest)', poe: '802.3at PoE+' }
+            },
+            siem: {
+                name: 'SIEM / SOC Monitoring',
+                category: 'security',
+                icon: '<svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
+                color: 'border-indigo-500/50 bg-slate-900',
+                powerKW: 0.5,
+                defaultPorts: 4,
+                specs: { eps: '15,000 Events/sec', retention: '365-Day Log Retention', integrations: 'SOAR + Threat Intel' }
+            },
+            dcsite: {
+                name: 'Remote Data Center Site',
+                category: 'site',
+                icon: '<svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1"></rect><rect x="7" y="6" width="2" height="2"></rect><rect x="11" y="6" width="2" height="2"></rect><rect x="15" y="6" width="2" height="2"></rect><rect x="7" y="10" width="2" height="2"></rect><rect x="11" y="10" width="2" height="2"></rect><rect x="15" y="10" width="2" height="2"></rect><rect x="7" y="14" width="2" height="2"></rect><rect x="11" y="14" width="2" height="2"></rect><rect x="15" y="14" width="2" height="2"></rect></svg>',
+                color: 'border-slate-500/50 bg-slate-900',
+                powerKW: 0,
+                defaultPorts: 8,
+                specs: { location: 'Ashburn, VA (US-East)', tier: 'Tier III (N+1)', role: 'Primary Active Site' }
+            },
+            cloud: {
+                name: 'Public Cloud / Internet',
+                category: 'site',
+                icon: '<svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"></path></svg>',
+                color: 'border-sky-500/50 bg-slate-900',
+                powerKW: 0,
+                defaultPorts: 4,
+                specs: { provider: 'AWS / Azure / GCP', region: 'Multi-Region', connectivity: 'Direct Connect / ExpressRoute' }
             }
         };
 
@@ -538,6 +815,18 @@
             power: { stroke: '#f59e0b', width: 3.5, name: '3-Phase Power', dash: '10,4', animated: true },
             bms: { stroke: '#14b8a6', width: 2, name: 'BMS Modbus', dash: '3,3', animated: false },
             security: { stroke: '#ec4899', width: 2, name: 'IP Security Link', dash: '', animated: false }
+        };
+
+        /* Purdue Enterprise Reference Architecture levels for zone tagging, plus a generic custom zone */
+        const ZONE_LEVELS = {
+            l5: { label: 'Level 5 — Enterprise Network', color: '#a855f7' },
+            l4: { label: 'Level 4 — Business & IT Logistics', color: '#3b82f6' },
+            l35: { label: 'Level 3.5 — Industrial DMZ (IDMZ)', color: '#f59e0b' },
+            l3: { label: 'Level 3 — Site Operations (MES)', color: '#22c55e' },
+            l2: { label: 'Level 2 — Area Supervisory (SCADA/HMI)', color: '#14b8a6' },
+            l1: { label: 'Level 1 — Basic Control (PLC/RTU)', color: '#06b6d4' },
+            l0: { label: 'Level 0 — Physical Process', color: '#64748b' },
+            custom: { label: 'Custom Zone / Site Grouping', color: '#ec4899' }
         };
 
         // Escapes user-controlled text before it is interpolated into innerHTML templates
@@ -553,12 +842,15 @@
         let state = {
             nodes: {},
             connections: [],
+            zones: {},
             counter: 1,
+            zoneCounter: 1,
             selectedNodeId: null,
             selectedConnectionId: null,
+            selectedZoneId: null,
             snapToGrid: true,
             zoom: 1.0,
-            mode: 'select', // 'select' or 'connect'
+            mode: 'select', // 'select', 'connect', or 'zone'
             activeCableType: 'fiber',
             connectingSourceId: null
         };
@@ -566,6 +858,7 @@
         // Cache DOM elements
         const canvasContainer = document.getElementById('canvas-container');
         const canvasWorld = document.getElementById('canvas-world');
+        const zonesContainer = document.getElementById('zones-container');
         const nodesContainer = document.getElementById('nodes-container');
         const cableGroup = document.getElementById('cable-group');
         const draftCable = document.getElementById('draft-cable');
@@ -573,20 +866,39 @@
         const inspectorBadge = document.getElementById('inspector-badge');
         const toolSelectBtn = document.getElementById('tool-select');
         const toolConnectBtn = document.getElementById('tool-connect');
+        const toolZoneBtn = document.getElementById('tool-zone');
         const snapBtn = document.getElementById('btn-snap');
         const zoomLabel = document.getElementById('zoom-label');
 
+        document.getElementById('palette-count').textContent = `${Object.keys(COMPONENT_METADATA).length} Items`;
+
+        // Converts a mouse/pointer event's screen coordinates into world-space coordinates,
+        // accounting for canvas scroll offset and current zoom level.
+        function getWorldCoords(e) {
+            const rect = canvasContainer.getBoundingClientRect();
+            return {
+                x: (e.clientX - rect.left + canvasContainer.scrollLeft) / state.zoom,
+                y: (e.clientY - rect.top + canvasContainer.scrollTop) / state.zoom
+            };
+        }
+
+        function hexToRgba(hex, alpha) {
+            const bigint = parseInt(hex.replace('#', ''), 16);
+            const r = (bigint >> 16) & 255, g = (bigint >> 8) & 255, b = bigint & 255;
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
         function setInteractionMode(mode) {
             state.mode = mode;
-            if (mode === 'select') {
-                toolSelectBtn.className = 'px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all bg-brand-600 text-white shadow-sm';
-                toolConnectBtn.className = 'px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all text-slate-400 hover:text-slate-200';
-                cancelDraftConnection();
-            } else if (mode === 'connect') {
-                toolConnectBtn.className = 'px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all bg-pink-600 text-white shadow-sm';
-                toolSelectBtn.className = 'px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all text-slate-400 hover:text-slate-200';
-                showToast('Link Mode: Click a source device, then click destination', 'info');
-            }
+            const base = 'px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all';
+            const idle = `${base} text-slate-400 hover:text-slate-200`;
+            toolSelectBtn.className = mode === 'select' ? `${base} bg-brand-600 text-white shadow-sm` : idle;
+            toolConnectBtn.className = mode === 'connect' ? `${base} bg-pink-600 text-white shadow-sm` : idle;
+            toolZoneBtn.className = mode === 'zone' ? `${base} bg-amber-600 text-white shadow-sm` : idle;
+
+            if (mode !== 'connect') cancelDraftConnection();
+            if (mode === 'connect') showToast('Link Mode: Click a source device, then click destination', 'info');
+            if (mode === 'zone') showToast('Zone Mode: Click and drag on the canvas to draw a Purdue/security zone', 'info');
         }
 
         function updateCableType(type) {
@@ -671,6 +983,8 @@
 
         function renderNodeElement(data) {
             const meta = COMPONENT_METADATA[data.archetypeKey];
+            const existing = document.getElementById(data.id);
+            if (existing) existing.remove();
             const nodeEl = document.createElement('div');
             nodeEl.id = data.id;
             nodeEl.className = `absolute pointer-events-auto cursor-move transition-shadow duration-150 rounded-xl border-2 ${meta.color} p-3 w-52 shadow-xl backdrop-blur-md bg-slate-900/90 hover:border-indigo-400 select-none group`;
@@ -718,7 +1032,7 @@
         let activeDrag = null;
 
         function handleNodeMouseDown(e, nodeId) {
-            if (e.target.closest('button') || e.target.closest('.port-indicator') || state.mode === 'connect') {
+            if (e.target.closest('button') || e.target.closest('.port-indicator') || state.mode === 'connect' || state.mode === 'zone') {
                 return;
             }
 
@@ -927,6 +1241,7 @@
         function selectNode(nodeId) {
             state.selectedNodeId = nodeId;
             state.selectedConnectionId = null;
+            state.selectedZoneId = null;
 
             // Highlight in DOM
             document.querySelectorAll('.node-selected').forEach(el => el.classList.remove('node-selected'));
@@ -940,6 +1255,17 @@
         function selectConnection(connId) {
             state.selectedConnectionId = connId;
             state.selectedNodeId = null;
+            state.selectedZoneId = null;
+
+            document.querySelectorAll('.node-selected').forEach(el => el.classList.remove('node-selected'));
+            renderConnections();
+            updateInspector();
+        }
+
+        function selectZone(zoneId) {
+            state.selectedZoneId = zoneId;
+            state.selectedNodeId = null;
+            state.selectedConnectionId = null;
 
             document.querySelectorAll('.node-selected').forEach(el => el.classList.remove('node-selected'));
             renderConnections();
@@ -949,16 +1275,64 @@
         function clearSelection() {
             state.selectedNodeId = null;
             state.selectedConnectionId = null;
+            state.selectedZoneId = null;
             document.querySelectorAll('.node-selected').forEach(el => el.classList.remove('node-selected'));
             renderConnections();
             updateInspector();
         }
 
         canvasContainer.addEventListener('click', (e) => {
-            if (e.target === canvasContainer || e.target.id === 'canvas-world' || e.target.id === 'svg-layer') {
+            if (e.target === canvasContainer || e.target.id === 'canvas-world' || e.target.id === 'svg-layer' || e.target.id === 'zones-container') {
                 clearSelection();
                 if (state.mode === 'connect') cancelDraftConnection();
             }
+        });
+
+        // Zone drawing: click-drag on empty canvas while in 'zone' mode carves out a new rectangle
+        canvasContainer.addEventListener('mousedown', (e) => {
+            if (state.mode !== 'zone') return;
+            if (e.target.closest('.zone-drag-handle') || e.target.closest('.zone-resize-handle')) return;
+
+            const start = getWorldCoords(e);
+            const previewEl = document.createElement('div');
+            previewEl.className = 'absolute border-2 border-dashed border-amber-400 bg-amber-400/10 pointer-events-none rounded-lg';
+            zonesContainer.appendChild(previewEl);
+
+            const updatePreview = (x, y, w, h) => {
+                previewEl.style.left = `${x}px`;
+                previewEl.style.top = `${y}px`;
+                previewEl.style.width = `${w}px`;
+                previewEl.style.height = `${h}px`;
+            };
+            updatePreview(start.x, start.y, 0, 0);
+
+            const onMove = (moveEvent) => {
+                const cur = getWorldCoords(moveEvent);
+                updatePreview(
+                    Math.min(start.x, cur.x),
+                    Math.min(start.y, cur.y),
+                    Math.abs(cur.x - start.x),
+                    Math.abs(cur.y - start.y)
+                );
+            };
+
+            const onUp = (upEvent) => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+                const cur = getWorldCoords(upEvent);
+                const x = Math.min(start.x, cur.x);
+                const y = Math.min(start.y, cur.y);
+                const width = Math.abs(cur.x - start.x);
+                const height = Math.abs(cur.y - start.y);
+                previewEl.remove();
+                if (width > 20 && height > 20) {
+                    createZone(x, y, width, height);
+                }
+            };
+
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+            e.stopPropagation();
         });
 
         function updateInspector() {
@@ -1076,6 +1450,34 @@
                         </div>
                     </div>
                 `;
+            } else if (state.selectedZoneId) {
+                const zone = state.zones[state.selectedZoneId];
+                if (!zone) return;
+
+                inspectorBadge.textContent = 'Zone Selected';
+                inspectorBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-amber-900/60 text-amber-300 font-mono border border-amber-700/50';
+
+                inspectorContent.innerHTML = `
+                    <div class="space-y-3">
+                        <div>
+                            <label class="text-[10px] text-slate-400 uppercase font-semibold">Zone Label</label>
+                            <input type="text" value="${escapeHtml(zone.label)}" onchange="updateZoneLabel('${zone.id}', this.value)" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 focus:border-brand-500 mt-0.5">
+                        </div>
+
+                        <div>
+                            <label class="text-[10px] text-slate-400 uppercase font-semibold">Purdue / Security Level</label>
+                            <select onchange="updateZoneLevel('${zone.id}', this.value)" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 mt-0.5">
+                                ${Object.entries(ZONE_LEVELS).map(([key, cfg]) => `<option value="${key}" ${zone.level === key ? 'selected' : ''}>${escapeHtml(cfg.label)}</option>`).join('')}
+                            </select>
+                        </div>
+
+                        <p class="text-[10px] text-slate-500">Drag the colored tab to move the zone. Drag the bottom-right corner handle to resize it.</p>
+
+                        <div class="pt-2">
+                            <button onclick="requestDeleteZone('${zone.id}')" class="w-full py-1.5 bg-red-950/60 hover:bg-red-900/80 border border-red-800 text-red-300 rounded text-xs transition font-medium">Delete Zone</button>
+                        </div>
+                    </div>
+                `;
             } else {
                 inspectorBadge.textContent = 'No Selection';
                 inspectorBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono';
@@ -1175,13 +1577,16 @@
         function confirmClearWorkspace() {
             showConfirmModal(
                 'Reset Entire Canvas',
-                'This will permanently delete all placed nodes, switches, and cabling links on this canvas. Proceed?',
+                'This will permanently delete all placed nodes, switches, zones, and cabling links on this canvas. Proceed?',
                 () => {
                     nodesContainer.innerHTML = '';
                     cableGroup.innerHTML = '';
+                    zonesContainer.innerHTML = '';
                     state.nodes = {};
                     state.connections = [];
+                    state.zones = {};
                     state.counter = 1;
+                    state.zoneCounter = 1;
                     clearSelection();
                     updateSummaryStats();
                     showToast('Workspace reset successfully.', 'info');
@@ -1193,21 +1598,155 @@
             const nodeKeys = Object.keys(state.nodes);
             document.getElementById('stat-nodes-count').textContent = nodeKeys.length;
             document.getElementById('stat-links-count').textContent = state.connections.length;
-            
+            document.getElementById('stat-zones-count').textContent = Object.keys(state.zones).length;
+
             const totalKW = nodeKeys.reduce((acc, k) => acc + (Number(state.nodes[k].powerKW) || 0), 0);
             document.getElementById('stat-power-sum').textContent = `${totalKW.toFixed(1)} kW`;
+        }
+
+        // ---- Purdue / Security Zones ----
+
+        function createZone(x, y, width, height, customData = null) {
+            const id = customData ? customData.id : 'zone_' + (state.zoneCounter++);
+            const zoneData = customData || {
+                id,
+                label: `Zone ${state.zoneCounter - 1}`,
+                level: 'custom',
+                x, y, width, height
+            };
+            state.zones[id] = zoneData;
+            renderZoneElement(zoneData);
+            updateSummaryStats();
+            selectZone(id);
+            return zoneData;
+        }
+
+        function renderZoneElement(data) {
+            const existing = document.getElementById(data.id);
+            if (existing) existing.remove();
+
+            const cfg = ZONE_LEVELS[data.level] || ZONE_LEVELS.custom;
+            const el = document.createElement('div');
+            el.id = data.id;
+            el.className = 'absolute rounded-lg pointer-events-none';
+            el.style.left = `${data.x}px`;
+            el.style.top = `${data.y}px`;
+            el.style.width = `${data.width}px`;
+            el.style.height = `${data.height}px`;
+            el.style.border = `2px dashed ${cfg.color}`;
+            el.style.backgroundColor = hexToRgba(cfg.color, 0.07);
+
+            el.innerHTML = `
+                <div class="zone-drag-handle absolute -top-3 left-3 pointer-events-auto cursor-move select-none px-2 py-0.5 rounded text-[10px] font-semibold text-white shadow whitespace-nowrap" style="background:${cfg.color}">
+                    ${escapeHtml(data.label)}
+                </div>
+                <div class="zone-resize-handle absolute -bottom-1.5 -right-1.5 w-3 h-3 rounded-sm pointer-events-auto cursor-nwse-resize border border-white/60" style="background:${cfg.color}"></div>
+            `;
+
+            el.querySelector('.zone-drag-handle').addEventListener('mousedown', (e) => handleZoneDragStart(e, data.id));
+            el.querySelector('.zone-resize-handle').addEventListener('mousedown', (e) => handleZoneResizeStart(e, data.id));
+
+            zonesContainer.appendChild(el);
+        }
+
+        function handleZoneDragStart(e, zoneId) {
+            e.stopPropagation();
+            selectZone(zoneId);
+            const zone = state.zones[zoneId];
+            const startMouseX = e.clientX;
+            const startMouseY = e.clientY;
+            const startX = zone.x;
+            const startY = zone.y;
+
+            const onMove = (moveEvent) => {
+                const dx = (moveEvent.clientX - startMouseX) / state.zoom;
+                const dy = (moveEvent.clientY - startMouseY) / state.zoom;
+                zone.x = Math.max(0, startX + dx);
+                zone.y = Math.max(0, startY + dy);
+                const el = document.getElementById(zoneId);
+                if (el) {
+                    el.style.left = `${zone.x}px`;
+                    el.style.top = `${zone.y}px`;
+                }
+            };
+            const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+        }
+
+        function handleZoneResizeStart(e, zoneId) {
+            e.stopPropagation();
+            selectZone(zoneId);
+            const zone = state.zones[zoneId];
+            const startMouseX = e.clientX;
+            const startMouseY = e.clientY;
+            const startW = zone.width;
+            const startH = zone.height;
+
+            const onMove = (moveEvent) => {
+                const dx = (moveEvent.clientX - startMouseX) / state.zoom;
+                const dy = (moveEvent.clientY - startMouseY) / state.zoom;
+                zone.width = Math.max(80, startW + dx);
+                zone.height = Math.max(60, startH + dy);
+                const el = document.getElementById(zoneId);
+                if (el) {
+                    el.style.width = `${zone.width}px`;
+                    el.style.height = `${zone.height}px`;
+                }
+            };
+            const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
+            window.addEventListener('mousemove', onMove);
+            window.addEventListener('mouseup', onUp);
+        }
+
+        function updateZoneLabel(id, val) {
+            if (!state.zones[id]) return;
+            state.zones[id].label = val;
+            renderZoneElement(state.zones[id]);
+        }
+
+        function updateZoneLevel(id, val) {
+            if (!state.zones[id]) return;
+            state.zones[id].level = val;
+            renderZoneElement(state.zones[id]);
+        }
+
+        function requestDeleteZone(zoneId) {
+            const zone = state.zones[zoneId];
+            showConfirmModal(
+                'Delete Zone',
+                `Remove the zone '${zone ? zone.label : ''}'? Devices inside it will not be deleted.`,
+                () => executeDeleteZone(zoneId)
+            );
+        }
+
+        function executeDeleteZone(zoneId) {
+            const el = document.getElementById(zoneId);
+            if (el) el.remove();
+            delete state.zones[zoneId];
+            if (state.selectedZoneId === zoneId) clearSelection();
+            updateSummaryStats();
+            showToast('Zone removed.', 'info');
         }
 
         // Save layout as JSON file download
         function exportTopologyJSON() {
             const payload = {
                 app: 'DCIM-Architect-Studio',
-                version: '2.0',
+                version: '2.1',
                 timestamp: new Date().toISOString(),
                 state: {
                     nodes: state.nodes,
                     connections: state.connections,
-                    counter: state.counter
+                    zones: state.zones,
+                    counter: state.counter,
+                    zoneCounter: state.zoneCounter
                 }
             };
 
@@ -1239,22 +1778,40 @@
                     // Reset current workspace
                     nodesContainer.innerHTML = '';
                     cableGroup.innerHTML = '';
+                    zonesContainer.innerHTML = '';
                     state.nodes = {};
                     state.connections = [];
+                    state.zones = {};
                     clearSelection();
 
                     // Load new data
                     state.counter = incomingState.counter || Object.keys(incomingState.nodes).length + 1;
+                    state.zoneCounter = incomingState.zoneCounter || 1;
                     state.connections = incomingState.connections || [];
 
-                    // Rebuild nodes
+                    // Rebuild nodes, skipping any with an archetype this app version doesn't recognize
+                    let skipped = 0;
                     Object.values(incomingState.nodes).forEach(n => {
-                        createNode(n.archetypeKey || 'rack', n.x, n.y, n);
+                        if (!COMPONENT_METADATA[n.archetypeKey]) {
+                            skipped++;
+                            return;
+                        }
+                        createNode(n.archetypeKey, n.x, n.y, n);
+                    });
+
+                    // Rebuild zones
+                    Object.values(incomingState.zones || {}).forEach(z => {
+                        createZone(z.x, z.y, z.width, z.height, z);
                     });
 
                     renderConnections();
                     updateSummaryStats();
-                    showToast('Topology imported successfully!', 'success');
+                    clearSelection();
+                    if (skipped > 0) {
+                        showToast(`Topology imported with ${skipped} unrecognized device(s) skipped.`, 'warning');
+                    } else {
+                        showToast('Topology imported successfully!', 'success');
+                    }
                 } catch (err) {
                     showToast('Error importing file: ' + err.message, 'warning');
                 }
@@ -1357,19 +1914,43 @@
             const sensor1 = createNode('sensor', 700, 560);
             updateNodeLabel(sensor1.id, 'Aisle 01 VESDA Smoke/Temp');
 
+            // Individual compute node, within the same site-operations zone as the rack/storage
+            const server1 = createNode('server', 980, 420);
+            updateNodeLabel(server1.id, 'App Server Pod A07');
+
+            // Multi-data-center connectivity: inter-DC backbone, a remote site, and hybrid cloud
+            const coreRouter1 = createNode('core_router', 1280, 100);
+            updateNodeLabel(coreRouter1.id, 'Inter-DC Core Router');
+
+            const dcsite1 = createNode('dcsite', 1280, 280);
+            updateNodeLabel(dcsite1.id, 'DR Site — West Region');
+
+            const cloud1 = createNode('cloud', 1280, 460);
+            updateNodeLabel(cloud1.id, 'Hybrid Cloud (Multi-Region)');
+
             // Form connections
             createConnection(r1.id, fw1.id, 'fiber');
             createConnection(fw1.id, sw1.id, 'fiber');
             createConnection(sw1.id, rack1.id, 'copper');
             createConnection(sw1.id, storage1.id, 'fiber');
+            createConnection(sw1.id, server1.id, 'copper');
+            createConnection(sw1.id, coreRouter1.id, 'fiber');
+            createConnection(coreRouter1.id, dcsite1.id, 'fiber');
+            createConnection(coreRouter1.id, cloud1.id, 'fiber');
             createConnection(ups1.id, pdu1.id, 'power');
             createConnection(pdu1.id, rack1.id, 'power');
             createConnection(sw1.id, chiller1.id, 'bms');
             createConnection(sw1.id, cctv1.id, 'security');
             createConnection(sw1.id, door1.id, 'security');
 
+            // Example Purdue security zones, showing how devices map to enterprise/DMZ/site-operations tiers
+            createZone(110, 70, 270, 170, { id: 'zone_seed_l4', label: 'Level 4 — Enterprise WAN Edge', level: 'l4', x: 110, y: 70, width: 270, height: 170 });
+            createZone(390, 70, 270, 170, { id: 'zone_seed_l35', label: 'Level 3.5 — Industrial DMZ', level: 'l35', x: 390, y: 70, width: 270, height: 170 });
+            createZone(670, 50, 548, 520, { id: 'zone_seed_l3', label: 'Level 3 — Site Operations (MES)', level: 'l3', x: 670, y: 50, width: 548, height: 520 });
+            state.zoneCounter = 4;
+
             clearSelection();
-            showToast('Loaded Data Center reference architecture!', 'success');
+            showToast('Loaded multi-DC reference architecture with Purdue security zones!', 'success');
         });
     </script>
 </body>
