@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DCIM Architect - Data Center & Network Topology Designer</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81',
+                        },
+                        slate: {
+                            850: '#151f32',
+                            950: '#0a0f1d'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+
+        /* Canvas grid background pattern */
+        .grid-canvas {
+            background-color: #0f172a;
+            background-image: 
+                radial-gradient(circle, #334155 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        /* Node selection and animated connection lines */
+        .node-selected {
+            box-shadow: 0 0 0 2px #6366f1, 0 10px 25px -5px rgba(99, 102, 241, 0.4);
+        }
+        .node-connecting {
+            box-shadow: 0 0 0 2px #ec4899, 0 0 20px rgba(236, 72, 153, 0.6);
+            animation: pulse-border 1.5s infinite;
+        }
+        @keyframes pulse-border {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+
+        /* Animated connection cable dash */
+        .cable-traffic {
+            stroke-dasharray: 6, 6;
+            animation: dash 1s linear infinite;
+        }
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -12;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans h-screen w-screen overflow-hidden flex flex-col select-none">
+
+    <header class="h-14 bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between z-30 shrink-0">
+        <!-- Logo & Title -->
+        <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-brand-600 to-indigo-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                </svg>
+            </div>
+            <div>
+                <h1 class="font-bold text-sm leading-tight text-white flex items-center gap-2">
+                    DCIM Architect <span class="text-[10px] px-2 py-0.5 rounded bg-brand-900/60 text-brand-300 border border-brand-700/50">PRO</span>
+                </h1>
+                <p class="text-[11px] text-slate-400">Data Center Infrastructure & Network Topology Studio</p>
+            </div>
+        </div>
+
+        <!-- Mode & Tool Selectors -->
+        <div class="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 space-x-1">
+            <button id="tool-select" onclick="setInteractionMode('select')" title="Select & Move Objects" class="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all bg-brand-600 text-white shadow-sm">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path></svg>
+                <span>Select / Move</span>
+            </button>
+            <button id="tool-connect" onclick="setInteractionMode('connect')" title="Create Cabling Connection" class="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all text-slate-400 hover:text-slate-200">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                <span>Cable Link</span>
+            </button>
+            <!-- Cable Type Selector -->
+            <div class="h-4 w-px bg-slate-800 my-auto"></div>
+            <select id="cable-type-select" onchange="updateCableType(this.value)" class="bg-slate-900 text-slate-300 text-xs rounded border border-slate-700 px-2 py-1 focus:outline-none focus:border-brand-500 cursor-pointer">
+                <option value="fiber">100G/40G Fiber Optic</option>
+                <option value="copper">Cat6A 10GbE Copper</option>
+                <option value="power">AC 3-Phase Power Feed</option>
+                <option value="bms">BMS / Modbus Control</option>
+                <option value="security">Security CCTV / IP Access</option>
+            </select>
+        </div>
+
+        <div class="flex items-center space-x-2">
+            <!-- Grid Snap Toggle -->
+            <button id="btn-snap" onclick="toggleSnapGrid()" title="Snap to Grid (24px)" class="p-2 rounded-lg text-slate-400 bg-slate-800 hover:text-slate-200 hover:bg-slate-700 transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+
+            <!-- Zoom Controls -->
+            <div class="flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700">
+                <button onclick="adjustZoom(-0.1)" class="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-700 transition" title="Zoom Out">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path></svg>
+                </button>
+                <span id="zoom-label" class="text-[11px] font-mono px-2 text-slate-300 min-w-[40px] text-center">100%</span>
+                <button onclick="adjustZoom(0.1)" class="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-700 transition" title="Zoom In">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                </button>
+                <button onclick="resetZoom()" class="px-2 py-1 text-[10px] text-slate-400 hover:text-white hover:bg-slate-700 rounded transition border-l border-slate-700" title="Reset Zoom">Fit</button>
+            </div>
+
+            <!-- Import / Export Actions -->
+            <button onclick="exportTopologyJSON()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium flex items-center gap-1.5 transition">
+                <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                <span>Save JSON</span>
+            </button>
+
+            <label class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium flex items-center gap-1.5 transition cursor-pointer">
+                <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                <span>Load</span>
+                <input type="file" id="import-file" accept=".json" class="hidden" onchange="importTopologyJSON(event)">
+            </label>
+
+            <button onclick="confirmClearWorkspace()" class="px-2.5 py-1.5 bg-red-950/40 hover:bg-red-900/60 border border-red-800/50 rounded-lg text-xs text-red-300 font-medium flex items-center gap-1 transition" title="Clear Design">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </button>
+        </div>
+    </header>
+
+    <div class="flex-1 flex overflow-hidden relative">
+        
+        <!-- LEFT SIDEBAR: DCIM Component Palette -->
+        <aside class="w-64 bg-slate-900/95 border-r border-slate-800 flex flex-col shrink-0 z-20 shadow-xl backdrop-blur">
+            <div class="p-3 border-b border-slate-800 flex items-center justify-between">
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Component Catalog</span>
+                <span id="palette-count" class="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded">12 Items</span>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-3 space-y-4">
+                
+                <!-- Category: Compute & Core Networking -->
+                <div>
+                    <h3 class="text-[11px] font-semibold text-indigo-400 tracking-wider uppercase mb-2">Network & Compute</h3>
+                    <div class="space-y-1.5">
+                        
+                        <!-- Server Rack 42U -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'rack')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-indigo-950/60 border border-indigo-500/30 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="10" x2="16" y2="10"></line><line x1="8" y1="14" x2="16" y2="14"></line><line x1="8" y1="18" x2="16" y2="18"></line></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Server Rack (42U)</div>
+                                <div class="text-[10px] text-slate-400 truncate">High-density multi-chassis</div>
+                            </div>
+                        </div>
+
+                        <!-- Core / Spine Switch -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'switch')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center text-cyan-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="6" cy="12" r="1.5"></circle><circle cx="10" cy="12" r="1.5"></circle><circle cx="14" cy="12" r="1.5"></circle><circle cx="18" cy="12" r="1.5"></circle></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Switch (Spine/Leaf)</div>
+                                <div class="text-[10px] text-slate-400 truncate">100G multi-terabit fabric</div>
+                            </div>
+                        </div>
+
+                        <!-- Enterprise Firewall -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'firewall')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-red-950/60 border border-red-500/30 flex items-center justify-center text-red-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">NextGen Firewall</div>
+                                <div class="text-[10px] text-slate-400 truncate">Perimeter UTM & IPSec HA</div>
+                            </div>
+                        </div>
+
+                        <!-- Edge Router -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'router')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-blue-950/60 border border-blue-500/30 flex items-center justify-center text-blue-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v18M3 12h18"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Border Router (BGP)</div>
+                                <div class="text-[10px] text-slate-400 truncate">Dual uplink ISP transit</div>
+                            </div>
+                        </div>
+
+                        <!-- SAN / NAS Storage Array -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'storage')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-emerald-950/60 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1"></rect><rect x="3" y="14" width="18" height="6" rx="1"></rect><circle cx="6" cy="7" r="1"></circle><circle cx="6" cy="17" r="1"></circle></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">SAN All-Flash Array</div>
+                                <div class="text-[10px] text-slate-400 truncate">NVMe-oF Tier 0 storage</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Category: Critical Facility & HVAC -->
+                <div>
+                    <h3 class="text-[11px] font-semibold text-amber-400 tracking-wider uppercase mb-2">Facilities & Power</h3>
+                    <div class="space-y-1.5">
+                        
+                        <!-- Industrial Chiller / CRAH -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'chiller')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-sky-950/60 border border-sky-500/30 flex items-center justify-center text-sky-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2v20M2 12h20m-5-7l-4 4m-2 2l-4 4m0-8l4 4m2 2l4 4"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">CRAH / In-Row Chiller</div>
+                                <div class="text-[10px] text-slate-400 truncate">Chilled water cooling (N+1)</div>
+                            </div>
+                        </div>
+
+                        <!-- Modular UPS Unit -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'ups')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-amber-950/60 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="7" width="18" height="12" rx="2"></rect><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 11v4M10 10l-2 3h4l-2 3"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Modular UPS System</div>
+                                <div class="text-[10px] text-slate-400 truncate">500kVA Lithium battery bank</div>
+                            </div>
+                        </div>
+
+                        <!-- Floor PDU -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'pdu')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-yellow-950/60 border border-yellow-500/30 flex items-center justify-center text-yellow-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Precision PDU RPP</div>
+                                <div class="text-[10px] text-slate-400 truncate">Dual breaker branch circuits</div>
+                            </div>
+                        </div>
+
+                        <!-- Standby Diesel Generator -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'generator')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-orange-950/60 border border-orange-500/30 flex items-center justify-center text-orange-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v8m-4-4h8"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Diesel Genset Backup</div>
+                                <div class="text-[10px] text-slate-400 truncate">2.5MW Auto-Transfer switch</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Category: Physical Security & BMS -->
+                <div>
+                    <h3 class="text-[11px] font-semibold text-rose-400 tracking-wider uppercase mb-2">Security & Access</h3>
+                    <div class="space-y-1.5">
+                        
+                        <!-- CCTV Dome Camera -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'cctv')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-purple-950/60 border border-purple-500/30 flex items-center justify-center text-purple-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">4K CCTV IP Camera</div>
+                                <div class="text-[10px] text-slate-400 truncate">Aisle & Perimeter motion PTZ</div>
+                            </div>
+                        </div>
+
+                        <!-- Biometric Door Access Control -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'door')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-rose-950/60 border border-rose-500/30 flex items-center justify-center text-rose-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Mantra / Biometric Door</div>
+                                <div class="text-[10px] text-slate-400 truncate">Dual-factor mantrap lock</div>
+                            </div>
+                        </div>
+
+                        <!-- Environmental / Smoke Sensor -->
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'sensor')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-teal-950/60 border border-teal-500/30 flex items-center justify-center text-teal-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">VESDA Smoke & Temp</div>
+                                <div class="text-[10px] text-slate-400 truncate">Early air sampling & humidity</div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Drag Hint Footer -->
+            <div class="p-3 bg-slate-950/80 border-t border-slate-800 text-[11px] text-slate-400 flex items-center gap-2">
+                <svg class="w-4 h-4 text-brand-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span>Drag any item into canvas or click to add at center.</span>
+            </div>
+        </aside>
+
+        <!-- CENTER WORKSPACE: Grid Canvas & Cable Lines -->
+        <main id="canvas-container" class="flex-1 h-full overflow-auto relative grid-canvas focus:outline-none" tabindex="0">
+            <!-- Scalable World Frame -->
+            <div id="canvas-world" class="absolute top-0 left-0 w-[3600px] h-[2600px] origin-top-left transition-transform duration-75">
+                
+                <!-- SVG Connections Layer -->
+                <svg id="svg-layer" class="absolute top-0 left-0 w-full h-full pointer-events-none z-10 overflow-visible">
+                    <defs>
+                        <!-- Glow filter for selected cables -->
+                        <filter id="cable-glow" x="-20%" y="-20%" width="140%" height="140%">
+                            <feGaussianBlur stdDeviation="3" result="blur" />
+                            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                        </filter>
+                    </defs>
+                    <!-- Connection SVG elements injected dynamically -->
+                    <g id="cable-group"></g>
+                    <!-- Temporary drafting cable when linking -->
+                    <line id="draft-cable" x1="0" y1="0" x2="0" y2="0" stroke="#ec4899" stroke-width="3" stroke-dasharray="4,4" class="hidden" />
+                </svg>
+
+                <!-- Dropped Nodes Container -->
+                <div id="nodes-container" class="absolute top-0 left-0 w-full h-full z-20 pointer-events-none">
+                    <!-- Dynamic interactive DOM nodes will be injected here with pointer-events-auto -->
+                </div>
+
+            </div>
+        </main>
+
+        <!-- RIGHT SIDEBAR: Device & Cable Inspector -->
+        <aside id="inspector-panel" class="w-72 bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 z-20 shadow-xl">
+            <div class="p-3 border-b border-slate-800 flex items-center justify-between">
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Inspector Properties</span>
+                <span id="inspector-badge" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">No Selection</span>
+            </div>
+
+            <!-- Selected Item Content -->
+            <div id="inspector-content" class="flex-1 overflow-y-auto p-4 space-y-4">
+                <div class="text-center py-10 text-slate-500">
+                    <svg class="w-10 h-10 mx-auto mb-2 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path></svg>
+                    <p class="text-xs">Click on any equipment or link cable to inspect and calibrate parameters.</p>
+                </div>
+            </div>
+
+            <!-- Summary Status Bar in Inspector Footer -->
+            <div class="p-3 bg-slate-950 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
+                <div class="flex justify-between">
+                    <span>Total Nodes:</span>
+                    <span id="stat-nodes-count" class="font-mono text-slate-200">0</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Active Links:</span>
+                    <span id="stat-links-count" class="font-mono text-slate-200">0</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>Power Load Est:</span>
+                    <span id="stat-power-sum" class="font-mono text-amber-300">0.0 kW</span>
+                </div>
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- Custom In-App Modal (Complies with no-alert/no-confirm mandate) -->
+    <div id="custom-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center hidden">
+        <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-5 shadow-2xl mx-4 transform transition-all scale-100">
+            <div class="flex items-center gap-3 mb-3">
+                <div id="modal-icon-wrap" class="w-10 h-10 rounded-lg flex items-center justify-center bg-red-950/60 border border-red-800/60 text-red-400 shrink-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                </div>
+                <div>
+                    <h4 id="modal-title" class="font-semibold text-sm text-white">Confirmation Required</h4>
+                    <p id="modal-message" class="text-xs text-slate-400 mt-0.5">Are you sure you want to proceed with this operation?</p>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 mt-5">
+                <button id="modal-btn-cancel" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition">Cancel</button>
+                <button id="modal-btn-confirm" class="px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-xs font-medium text-white shadow-lg shadow-red-600/30 transition">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <script>
+        /* Component definitions with initial specs, SVG icons, and visual classes */
+        const COMPONENT_METADATA = {
+            rack: {
+                name: 'Server Rack (42U)',
+                category: 'compute',
+                icon: '<svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"></rect><line x1="8" y1="6" x2="16" y2="6"></line><line x1="8" y1="10" x2="16" y2="10"></line><line x1="8" y1="14" x2="16" y2="14"></line><line x1="8" y1="18" x2="16" y2="18"></line></svg>',
+                color: 'border-indigo-500/50 bg-slate-900',
+                powerKW: 8.5,
+                defaultPorts: 48,
+                specs: { ru: '42U', status: 'Online', pduFeed: 'A+B Redundant' }
+            },
+            switch: {
+                name: 'Spine/Leaf Switch',
+                category: 'network',
+                icon: '<svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="6" cy="12" r="1.5"></circle><circle cx="10" cy="12" r="1.5"></circle><circle cx="14" cy="12" r="1.5"></circle><circle cx="18" cy="12" r="1.5"></circle></svg>',
+                color: 'border-cyan-500/50 bg-slate-900',
+                powerKW: 1.2,
+                defaultPorts: 64,
+                specs: { speed: '100 Gbps QSFP28', vlan: '10-200', mtu: '9216' }
+            },
+            firewall: {
+                name: 'NextGen Firewall',
+                category: 'security',
+                icon: '<svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>',
+                color: 'border-red-500/50 bg-slate-900',
+                powerKW: 0.8,
+                defaultPorts: 16,
+                specs: { throughput: '40 Gbps Threat Prevention', haMode: 'Active/Passive', zones: 'Trust, Untrust, DMZ' }
+            },
+            router: {
+                name: 'Border BGP Router',
+                category: 'network',
+                icon: '<svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v18M3 12h18"></path></svg>',
+                color: 'border-blue-500/50 bg-slate-900',
+                powerKW: 1.5,
+                defaultPorts: 24,
+                specs: { bgpAS: 'AS65001', peerCount: '4 Transit', mtu: '9000' }
+            },
+            storage: {
+                name: 'NVMe SAN Array',
+                category: 'compute',
+                icon: '<svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1"></rect><rect x="3" y="14" width="18" height="6" rx="1"></rect><circle cx="6" cy="7" r="1"></circle><circle cx="6" cy="17" r="1"></circle></svg>',
+                color: 'border-emerald-500/50 bg-slate-900',
+                powerKW: 2.4,
+                defaultPorts: 16,
+                specs: { capacity: '240 TB Raw', protocol: 'NVMe-oF / RoCEv2', raid: 'RAID 6 Dual-Parity' }
+            },
+            chiller: {
+                name: 'CRAH / Chiller Unit',
+                category: 'facility',
+                icon: '<svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2v20M2 12h20m-5-7l-4 4m-2 2l-4 4m0-8l4 4m2 2l4 4"></path></svg>',
+                color: 'border-sky-500/50 bg-slate-900',
+                powerKW: 12.0,
+                defaultPorts: 4,
+                specs: { targetTemp: '21.5°C', airflowCFM: '18,500', coolantDelta: '6.2°C' }
+            },
+            ups: {
+                name: 'Modular UPS 500kVA',
+                category: 'facility',
+                icon: '<svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="7" width="18" height="12" rx="2"></rect><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M22 11v4M10 10l-2 3h4l-2 3"></path></svg>',
+                color: 'border-amber-500/50 bg-slate-900',
+                powerKW: 18.0,
+                defaultPorts: 8,
+                specs: { batteryHealth: '98% Li-Ion', runtimeMinutes: '24 min @ full load', efficiency: '96.8%' }
+            },
+            pdu: {
+                name: 'Floor PDU / RPP',
+                category: 'facility',
+                icon: '<svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>',
+                color: 'border-yellow-500/50 bg-slate-900',
+                powerKW: 4.5,
+                defaultPorts: 12,
+                specs: { voltage: '415V / 240V 3P+N', branchCircuits: '84 Poles', kVA: '150 kVA' }
+            },
+            generator: {
+                name: 'Diesel Genset 2.5MW',
+                category: 'facility',
+                icon: '<svg class="w-5 h-5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v8m-4-4h8"></path></svg>',
+                color: 'border-orange-500/50 bg-slate-900',
+                powerKW: 0.0,
+                defaultPorts: 4,
+                specs: { fuelLevel: '88% (48 hrs)', fuelType: 'Ultra-low sulfur #2', atsResponse: '< 10 sec' }
+            },
+            cctv: {
+                name: '4K CCTV Dome IP',
+                category: 'security',
+                icon: '<svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>',
+                color: 'border-purple-500/50 bg-slate-900',
+                powerKW: 0.03,
+                defaultPorts: 2,
+                specs: { res: '3840x2160 @ 30fps', poeClass: '802.3af (PoE)', streamRetention: '90 Days NAS' }
+            },
+            door: {
+                name: 'Biometric Mantrap Door',
+                category: 'security',
+                icon: '<svg class="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path></svg>',
+                color: 'border-rose-500/50 bg-slate-900',
+                powerKW: 0.05,
+                defaultPorts: 2,
+                specs: { authMode: 'Iris + RFID Badge', failSafe: 'Fail-Secure Lock', interlocking: 'Enabled' }
+            },
+            sensor: {
+                name: 'VESDA & Temp Sensor',
+                category: 'facility',
+                icon: '<svg class="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>',
+                color: 'border-teal-500/50 bg-slate-900',
+                powerKW: 0.02,
+                defaultPorts: 2,
+                specs: { reading: '22.1°C / 44% RH', protocol: 'BACnet IP / MQTT', alertThreshold: '28.0°C Max' }
+            }
+        };
+
+        /* Cable connection styling configs */
+        const CABLE_CONFIGS = {
+            fiber: { stroke: '#06b6d4', width: 2.5, name: '100G Fiber', dash: '6,6', animated: true },
+            copper: { stroke: '#6366f1', width: 2, name: 'Cat6A Copper', dash: '', animated: false },
+            power: { stroke: '#f59e0b', width: 3.5, name: '3-Phase Power', dash: '10,4', animated: true },
+            bms: { stroke: '#14b8a6', width: 2, name: 'BMS Modbus', dash: '3,3', animated: false },
+            security: { stroke: '#ec4899', width: 2, name: 'IP Security Link', dash: '', animated: false }
+        };
+
+        let state = {
+            nodes: {},
+            connections: [],
+            counter: 1,
+            selectedNodeId: null,
+            selectedConnectionId: null,
+            snapToGrid: true,
+            zoom: 1.0,
+            mode: 'select', // 'select' or 'connect'
+            activeCableType: 'fiber',
+            connectingSourceId: null
+        };
+
+        // Cache DOM elements
+        const canvasContainer = document.getElementById('canvas-container');
+        const canvasWorld = document.getElementById('canvas-world');
+        const nodesContainer = document.getElementById('nodes-container');
+        const cableGroup = document.getElementById('cable-group');
+        const draftCable = document.getElementById('draft-cable');
+        const inspectorContent = document.getElementById('inspector-content');
+        const inspectorBadge = document.getElementById('inspector-badge');
+        const toolSelectBtn = document.getElementById('tool-select');
+        const toolConnectBtn = document.getElementById('tool-connect');
+        const snapBtn = document.getElementById('btn-snap');
+        const zoomLabel = document.getElementById('zoom-label');
+
+        function setInteractionMode(mode) {
+            state.mode = mode;
+            if (mode === 'select') {
+                toolSelectBtn.className = 'px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all bg-brand-600 text-white shadow-sm';
+                toolConnectBtn.className = 'px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all text-slate-400 hover:text-slate-200';
+                cancelDraftConnection();
+            } else if (mode === 'connect') {
+                toolConnectBtn.className = 'px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all bg-pink-600 text-white shadow-sm';
+                toolSelectBtn.className = 'px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all text-slate-400 hover:text-slate-200';
+                showToast('Link Mode: Click a source device, then click destination', 'info');
+            }
+        }
+
+        function updateCableType(type) {
+            state.activeCableType = type;
+            showToast(`Active Cable: ${CABLE_CONFIGS[type].name}`, 'info');
+        }
+
+        function toggleSnapGrid() {
+            state.snapToGrid = !state.snapToGrid;
+            snapBtn.classList.toggle('text-indigo-400', state.snapToGrid);
+            snapBtn.classList.toggle('border', state.snapToGrid);
+            snapBtn.classList.toggle('border-indigo-500', state.snapToGrid);
+            showToast(`Snap to Grid: ${state.snapToGrid ? 'ON (24px)' : 'OFF'}`);
+        }
+
+        function adjustZoom(delta) {
+            state.zoom = Math.min(Math.max(0.5, state.zoom + delta), 2.0);
+            updateZoomTransform();
+        }
+
+        function resetZoom() {
+            state.zoom = 1.0;
+            updateZoomTransform();
+        }
+
+        function updateZoomTransform() {
+            canvasWorld.style.transform = `scale(${state.zoom})`;
+            zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
+            renderConnections();
+        }
+
+        function handlePaletteDragStart(e, archetypeKey) {
+            e.dataTransfer.setData('archetype', archetypeKey);
+            e.dataTransfer.effectAllowed = 'copy';
+        }
+
+        canvasContainer.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+        });
+
+        canvasContainer.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const archetypeKey = e.dataTransfer.getData('archetype');
+            if (!archetypeKey || !COMPONENT_METADATA[archetypeKey]) return;
+
+            const rect = canvasContainer.getBoundingClientRect();
+            // Calculate coordinate factoring in scroll and zoom
+            let x = (e.clientX - rect.left + canvasContainer.scrollLeft) / state.zoom - 80;
+            let y = (e.clientY - rect.top + canvasContainer.scrollTop) / state.zoom - 40;
+
+            if (state.snapToGrid) {
+                x = Math.round(x / 24) * 24;
+                y = Math.round(y / 24) * 24;
+            }
+
+            createNode(archetypeKey, Math.max(10, x), Math.max(10, y));
+        });
+
+        function createNode(archetypeKey, x, y, customData = null) {
+            const archetype = COMPONENT_METADATA[archetypeKey];
+            const id = customData ? customData.id : 'dc_node_' + (state.counter++);
+            
+            const nodeData = customData || {
+                id: id,
+                archetypeKey: archetypeKey,
+                label: archetype.name + ' #' + (state.counter - 1),
+                x: x,
+                y: y,
+                ip: `10.240.${Math.floor(Math.random() * 10) + 1}.${Math.floor(Math.random() * 254) + 1}`,
+                status: 'Healthy',
+                powerKW: archetype.powerKW,
+                notes: 'Primary production unit.'
+            };
+
+            state.nodes[id] = nodeData;
+            renderNodeElement(nodeData);
+            updateSummaryStats();
+            selectNode(id);
+            return nodeData;
+        }
+
+        function renderNodeElement(data) {
+            const meta = COMPONENT_METADATA[data.archetypeKey];
+            const nodeEl = document.createElement('div');
+            nodeEl.id = data.id;
+            nodeEl.className = `absolute pointer-events-auto cursor-move transition-shadow duration-150 rounded-xl border-2 ${meta.color} p-3 w-52 shadow-xl backdrop-blur-md bg-slate-900/90 hover:border-indigo-400 select-none group`;
+            nodeEl.style.left = `${data.x}px`;
+            nodeEl.style.top = `${data.y}px`;
+
+            nodeEl.innerHTML = `
+                <div class="flex items-center justify-between gap-2 pb-2 border-b border-slate-800">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <div class="p-1.5 rounded-lg bg-slate-800 border border-slate-700/80 shrink-0">
+                            ${meta.icon}
+                        </div>
+                        <div class="min-w-0">
+                            <h4 class="node-label text-xs font-semibold text-slate-100 truncate">${data.label}</h4>
+                            <p class="text-[10px] font-mono text-slate-400 truncate">${data.ip || 'No IP'}</p>
+                        </div>
+                    </div>
+                    <button onclick="requestDeleteNode('${data.id}', event)" class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-400 transition p-1 rounded hover:bg-slate-800" title="Delete Device">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+
+                <div class="mt-2 flex items-center justify-between text-[10px] text-slate-400">
+                    <div class="flex items-center gap-1">
+                        <span class="w-1.5 h-1.5 rounded-full ${data.status === 'Healthy' ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-amber-400'}"></span>
+                        <span>${data.status}</span>
+                    </div>
+                    <span class="font-mono text-amber-300">${data.powerKW} kW</span>
+                </div>
+
+                <!-- Connection Port Handle -->
+                <div class="mt-2 pt-1 border-t border-slate-800/80 flex items-center justify-between text-[9px] text-slate-500">
+                    <span>PORTS: ${meta.defaultPorts || 24}</span>
+                    <span class="text-brand-400 group-hover:underline cursor-pointer port-indicator" onclick="handlePortClick('${data.id}', event)">Connect ➔</span>
+                </div>
+            `;
+
+            // Setup node mouse and interaction listeners
+            nodeEl.addEventListener('mousedown', (e) => handleNodeMouseDown(e, data.id));
+            nodeEl.addEventListener('click', (e) => handleNodeClick(e, data.id));
+
+            nodesContainer.appendChild(nodeEl);
+        }
+
+        let activeDrag = null;
+
+        function handleNodeMouseDown(e, nodeId) {
+            if (e.target.closest('button') || e.target.closest('.port-indicator') || state.mode === 'connect') {
+                return;
+            }
+
+            selectNode(nodeId);
+            const node = state.nodes[nodeId];
+            const startMouseX = e.clientX;
+            const startMouseY = e.clientY;
+            const startNodeX = node.x;
+            const startNodeY = node.y;
+
+            activeDrag = {
+                nodeId,
+                onMove: (moveEvent) => {
+                    const dx = (moveEvent.clientX - startMouseX) / state.zoom;
+                    const dy = (moveEvent.clientY - startMouseY) / state.zoom;
+
+                    let newX = startNodeX + dx;
+                    let newY = startNodeY + dy;
+
+                    if (state.snapToGrid) {
+                        newX = Math.round(newX / 24) * 24;
+                        newY = Math.round(newY / 24) * 24;
+                    }
+
+                    newX = Math.max(12, Math.min(3300, newX));
+                    newY = Math.max(12, Math.min(2400, newY));
+
+                    node.x = newX;
+                    node.y = newY;
+
+                    const el = document.getElementById(nodeId);
+                    if (el) {
+                        el.style.left = `${newX}px`;
+                        el.style.top = `${newY}px`;
+                    }
+                    renderConnections();
+                },
+                onUp: () => {
+                    window.removeEventListener('mousemove', activeDrag.onMove);
+                    window.removeEventListener('mouseup', activeDrag.onUp);
+                    activeDrag = null;
+                }
+            };
+
+            window.addEventListener('mousemove', activeDrag.onMove);
+            window.addEventListener('mouseup', activeDrag.onUp);
+            e.stopPropagation();
+        }
+
+        function handleNodeClick(e, nodeId) {
+            e.stopPropagation();
+            if (state.mode === 'connect') {
+                handleConnectingStep(nodeId);
+            } else {
+                selectNode(nodeId);
+            }
+        }
+
+        function handlePortClick(nodeId, e) {
+            e.stopPropagation();
+            setInteractionMode('connect');
+            handleConnectingStep(nodeId);
+        }
+
+        function handleConnectingStep(nodeId) {
+            if (!state.connectingSourceId) {
+                // First endpoint
+                state.connectingSourceId = nodeId;
+                const sourceEl = document.getElementById(nodeId);
+                if (sourceEl) sourceEl.classList.add('node-connecting');
+                showToast('Selected source device. Now click the destination device.', 'info');
+                
+                // Track mouse for draft cable
+                window.addEventListener('mousemove', updateDraftCableMouse);
+            } else if (state.connectingSourceId === nodeId) {
+                cancelDraftConnection();
+                showToast('Cabling cancelled.', 'info');
+            } else {
+                // Second endpoint: establish link
+                createConnection(state.connectingSourceId, nodeId, state.activeCableType);
+                cancelDraftConnection();
+                setInteractionMode('select');
+            }
+        }
+
+        function updateDraftCableMouse(e) {
+            if (!state.connectingSourceId) return;
+            const srcNode = state.nodes[state.connectingSourceId];
+            if (!srcNode) return;
+
+            const rect = canvasContainer.getBoundingClientRect();
+            const mouseX = (e.clientX - rect.left + canvasContainer.scrollLeft) / state.zoom;
+            const mouseY = (e.clientY - rect.top + canvasContainer.scrollTop) / state.zoom;
+
+            const p1 = getNodeCenter(srcNode);
+            draftCable.setAttribute('x1', p1.x);
+            draftCable.setAttribute('y1', p1.y);
+            draftCable.setAttribute('x2', mouseX);
+            draftCable.setAttribute('y2', mouseY);
+            draftCable.classList.remove('hidden');
+        }
+
+        function cancelDraftConnection() {
+            if (state.connectingSourceId) {
+                const prev = document.getElementById(state.connectingSourceId);
+                if (prev) prev.classList.remove('node-connecting');
+                state.connectingSourceId = null;
+            }
+            draftCable.classList.add('hidden');
+            window.removeEventListener('mousemove', updateDraftCableMouse);
+        }
+
+        function getNodeCenter(node) {
+            return {
+                x: node.x + 104, // half of 208px (w-52)
+                y: node.y + 46   // approx middle height
+            };
+        }
+
+        function createConnection(fromId, toId, cableType) {
+            // Prevent duplicate connection between same pair
+            const existing = state.connections.find(c => 
+                (c.from === fromId && c.to === toId) || (c.from === toId && c.to === fromId)
+            );
+            if (existing) {
+                showToast('A connection between these devices already exists.', 'warning');
+                return;
+            }
+
+            const connId = 'cable_' + Date.now();
+            const newConn = {
+                id: connId,
+                from: fromId,
+                to: toId,
+                type: cableType,
+                speed: CABLE_CONFIGS[cableType].name,
+                redundant: true
+            };
+
+            state.connections.push(newConn);
+            renderConnections();
+            updateSummaryStats();
+            showToast(`Connected with ${CABLE_CONFIGS[cableType].name}`, 'success');
+        }
+
+        function renderConnections() {
+            cableGroup.innerHTML = '';
+
+            state.connections.forEach(conn => {
+                const n1 = state.nodes[conn.from];
+                const n2 = state.nodes[conn.to];
+                if (!n1 || !n2) return;
+
+                const p1 = getNodeCenter(n1);
+                const p2 = getNodeCenter(n2);
+                const cfg = CABLE_CONFIGS[conn.type] || CABLE_CONFIGS.fiber;
+                const isSelected = state.selectedConnectionId === conn.id;
+
+                // Create SVG group for line and interactive hitzone
+                const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                g.setAttribute('class', 'cursor-pointer pointer-events-auto');
+
+                // Wider invisible hitzone for clicking easily
+                const hitLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                hitLine.setAttribute('x1', p1.x);
+                hitLine.setAttribute('y1', p1.y);
+                hitLine.setAttribute('x2', p2.x);
+                hitLine.setAttribute('y2', p2.y);
+                hitLine.setAttribute('stroke', 'transparent');
+                hitLine.setAttribute('stroke-width', '18');
+
+                // Visible cable
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', p1.x);
+                line.setAttribute('y1', p1.y);
+                line.setAttribute('x2', p2.x);
+                line.setAttribute('y2', p2.y);
+                line.setAttribute('stroke', isSelected ? '#38bdf8' : cfg.stroke);
+                line.setAttribute('stroke-width', isSelected ? cfg.width + 2 : cfg.width);
+                if (cfg.dash) line.setAttribute('stroke-dasharray', cfg.dash);
+                if (cfg.animated) line.setAttribute('class', 'cable-traffic');
+                if (isSelected) line.setAttribute('filter', 'url(#cable-glow)');
+
+                // Cable badge in midpoint
+                const midX = (p1.x + p2.x) / 2;
+                const midY = (p1.y + p2.y) / 2;
+                const badge = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                badge.setAttribute('cx', midX);
+                badge.setAttribute('cy', midY);
+                badge.setAttribute('r', '4');
+                badge.setAttribute('fill', isSelected ? '#38bdf8' : cfg.stroke);
+
+                g.appendChild(hitLine);
+                g.appendChild(line);
+                g.appendChild(badge);
+
+                g.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectConnection(conn.id);
+                });
+
+                cableGroup.appendChild(g);
+            });
+        }
+
+        function selectNode(nodeId) {
+            state.selectedNodeId = nodeId;
+            state.selectedConnectionId = null;
+
+            // Highlight in DOM
+            document.querySelectorAll('.node-selected').forEach(el => el.classList.remove('node-selected'));
+            const el = document.getElementById(nodeId);
+            if (el) el.classList.add('node-selected');
+
+            renderConnections();
+            updateInspector();
+        }
+
+        function selectConnection(connId) {
+            state.selectedConnectionId = connId;
+            state.selectedNodeId = null;
+
+            document.querySelectorAll('.node-selected').forEach(el => el.classList.remove('node-selected'));
+            renderConnections();
+            updateInspector();
+        }
+
+        function clearSelection() {
+            state.selectedNodeId = null;
+            state.selectedConnectionId = null;
+            document.querySelectorAll('.node-selected').forEach(el => el.classList.remove('node-selected'));
+            renderConnections();
+            updateInspector();
+        }
+
+        canvasContainer.addEventListener('click', (e) => {
+            if (e.target === canvasContainer || e.target.id === 'canvas-world' || e.target.id === 'svg-layer') {
+                clearSelection();
+                if (state.mode === 'connect') cancelDraftConnection();
+            }
+        });
+
+        function updateInspector() {
+            if (state.selectedNodeId) {
+                const node = state.nodes[state.selectedNodeId];
+                if (!node) return;
+                const meta = COMPONENT_METADATA[node.archetypeKey];
+
+                inspectorBadge.textContent = 'Node Selected';
+                inspectorBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-indigo-900/60 text-indigo-300 font-mono border border-indigo-700/50';
+
+                // Find connected peers
+                const connectedPeers = state.connections
+                    .filter(c => c.from === node.id || c.to === node.id)
+                    .map(c => {
+                        const peerId = c.from === node.id ? c.to : c.from;
+                        return { peer: state.nodes[peerId], conn: c };
+                    });
+
+                inspectorContent.innerHTML = `
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-2 p-2 bg-slate-800 rounded-lg border border-slate-700">
+                            <div class="p-2 rounded bg-slate-900">${meta.icon}</div>
+                            <div class="min-w-0 flex-1">
+                                <span class="text-[10px] uppercase font-bold text-slate-400">${meta.name}</span>
+                                <input type="text" value="${node.label}" onchange="updateNodeLabel('${node.id}', this.value)" class="w-full bg-slate-900 text-xs font-semibold text-white px-2 py-1 rounded border border-slate-700 focus:border-brand-500 focus:outline-none mt-1">
+                            </div>
+                        </div>
+
+                        <!-- Technical Specs Form -->
+                        <div class="space-y-2">
+                            <div>
+                                <label class="text-[10px] text-slate-400 uppercase font-semibold">IP Address</label>
+                                <input type="text" value="${node.ip || ''}" onchange="updateNodeIP('${node.id}', this.value)" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 focus:border-brand-500 font-mono mt-0.5">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="text-[10px] text-slate-400 uppercase font-semibold">Status</label>
+                                    <select onchange="updateNodeStatus('${node.id}', this.value)" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 mt-0.5">
+                                        <option value="Healthy" ${node.status === 'Healthy' ? 'selected' : ''}>Healthy</option>
+                                        <option value="Warning" ${node.status === 'Warning' ? 'selected' : ''}>Warning</option>
+                                        <option value="Maintenance" ${node.status === 'Maintenance' ? 'selected' : ''}>Maintenance</option>
+                                        <option value="Offline" ${node.status === 'Offline' ? 'selected' : ''}>Offline</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-[10px] text-slate-400 uppercase font-semibold">Power Draw (kW)</label>
+                                    <input type="number" step="0.1" value="${node.powerKW}" onchange="updateNodePower('${node.id}', this.value)" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 mt-0.5">
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="text-[10px] text-slate-400 uppercase font-semibold">System Notes</label>
+                                <textarea onchange="updateNodeNotes('${node.id}', this.value)" rows="2" class="w-full bg-slate-800 text-xs text-white p-2 rounded border border-slate-700 mt-0.5 focus:border-brand-500 focus:outline-none">${node.notes || ''}</textarea>
+                            </div>
+                        </div>
+
+                        <!-- Connected Topology Links -->
+                        <div class="pt-2 border-t border-slate-800">
+                            <span class="text-[10px] text-slate-400 uppercase font-semibold block mb-1.5">Attached Links (${connectedPeers.length})</span>
+                            <div class="space-y-1 max-h-36 overflow-y-auto">
+                                ${connectedPeers.length === 0 ? '<p class="text-[11px] text-slate-500 italic">No cable connections</p>' : ''}
+                                ${connectedPeers.map(item => `
+                                    <div class="flex items-center justify-between text-[11px] bg-slate-800/60 p-1.5 rounded border border-slate-700/60">
+                                        <span class="truncate text-slate-200">${item.peer ? item.peer.label : 'Unknown'}</span>
+                                        <span class="text-[9px] px-1.5 py-0.5 rounded bg-slate-700 font-mono text-cyan-300">${item.conn.speed}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <!-- Node Actions -->
+                        <div class="pt-2 flex gap-2">
+                            <button onclick="requestDeleteNode('${node.id}')" class="flex-1 py-1.5 bg-red-950/60 hover:bg-red-900/80 border border-red-800 text-red-300 rounded text-xs transition font-medium">Delete Node</button>
+                        </div>
+                    </div>
+                `;
+
+            } else if (state.selectedConnectionId) {
+                const conn = state.connections.find(c => c.id === state.selectedConnectionId);
+                if (!conn) return;
+                const n1 = state.nodes[conn.from];
+                const n2 = state.nodes[conn.to];
+
+                inspectorBadge.textContent = 'Link Selected';
+                inspectorBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-cyan-900/60 text-cyan-300 font-mono border border-cyan-700/50';
+
+                inspectorContent.innerHTML = `
+                    <div class="space-y-3">
+                        <div class="p-2.5 bg-slate-800 rounded-lg border border-slate-700 space-y-1">
+                            <span class="text-[10px] uppercase font-bold text-slate-400">Cable Link Endpoints</span>
+                            <div class="text-xs font-semibold text-slate-200 truncate">From: ${n1 ? n1.label : 'N/A'}</div>
+                            <div class="text-xs font-semibold text-slate-200 truncate">To: ${n2 ? n2.label : 'N/A'}</div>
+                        </div>
+
+                        <div>
+                            <label class="text-[10px] text-slate-400 uppercase font-semibold">Cable Media Type</label>
+                            <select onchange="updateConnectionMedia('${conn.id}', this.value)" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 mt-1">
+                                <option value="fiber" ${conn.type === 'fiber' ? 'selected' : ''}>100G/40G Fiber Optic</option>
+                                <option value="copper" ${conn.type === 'copper' ? 'selected' : ''}>Cat6A 10GbE Copper</option>
+                                <option value="power" ${conn.type === 'power' ? 'selected' : ''}>AC 3-Phase Power Feed</option>
+                                <option value="bms" ${conn.type === 'bms' ? 'selected' : ''}>BMS / Modbus Control</option>
+                                <option value="security" ${conn.type === 'security' ? 'selected' : ''}>IP Security Camera Link</option>
+                            </select>
+                        </div>
+
+                        <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded border border-slate-700">
+                            <input type="checkbox" id="conn-redundant" ${conn.redundant ? 'checked' : ''} onchange="updateConnectionRedundancy('${conn.id}', this.checked)" class="rounded text-brand-500">
+                            <label for="conn-redundant" class="text-xs text-slate-300">Dual Path Redundant Link</label>
+                        </div>
+
+                        <div class="pt-2">
+                            <button onclick="deleteConnection('${conn.id}')" class="w-full py-1.5 bg-red-950/60 hover:bg-red-900/80 border border-red-800 text-red-300 rounded text-xs transition font-medium">Remove Cable</button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                inspectorBadge.textContent = 'No Selection';
+                inspectorBadge.className = 'text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono';
+                inspectorContent.innerHTML = `
+                    <div class="text-center py-12 text-slate-500">
+                        <svg class="w-8 h-8 mx-auto mb-2 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path></svg>
+                        <p class="text-xs">Click on any equipment or link cable to inspect and calibrate parameters.</p>
+                    </div>
+                `;
+            }
+        }
+
+        function updateNodeLabel(id, val) {
+            if (!state.nodes[id]) return;
+            state.nodes[id].label = val;
+            const el = document.getElementById(id);
+            if (el) el.querySelector('.node-label').textContent = val;
+        }
+
+        function updateNodeIP(id, val) {
+            if (!state.nodes[id]) return;
+            state.nodes[id].ip = val;
+            const el = document.getElementById(id);
+            if (el) el.querySelector('p').textContent = val;
+        }
+
+        function updateNodeStatus(id, val) {
+            if (!state.nodes[id]) return;
+            state.nodes[id].status = val;
+            renderNodeElement(state.nodes[id]);
+            // Re-select to keep focus
+            selectNode(id);
+        }
+
+        function updateNodePower(id, val) {
+            if (!state.nodes[id]) return;
+            state.nodes[id].powerKW = parseFloat(val) || 0;
+            updateSummaryStats();
+            const el = document.getElementById(id);
+            if (el) el.querySelector('.font-mono.text-amber-300').textContent = `${state.nodes[id].powerKW} kW`;
+        }
+
+        function updateNodeNotes(id, val) {
+            if (!state.nodes[id]) return;
+            state.nodes[id].notes = val;
+        }
+
+        function updateConnectionMedia(connId, val) {
+            const conn = state.connections.find(c => c.id === connId);
+            if (conn) {
+                conn.type = val;
+                conn.speed = CABLE_CONFIGS[val].name;
+                renderConnections();
+                updateInspector();
+            }
+        }
+
+        function updateConnectionRedundancy(connId, val) {
+            const conn = state.connections.find(c => c.id === connId);
+            if (conn) conn.redundant = val;
+        }
+
+        function requestDeleteNode(nodeId, e) {
+            if (e) e.stopPropagation();
+            showConfirmModal(
+                'Delete Equipment Node',
+                `Are you sure you want to remove '${state.nodes[nodeId]?.label}' and all associated link cables?`,
+                () => executeDeleteNode(nodeId)
+            );
+        }
+
+        function executeDeleteNode(nodeId) {
+            // Remove connected lines
+            state.connections = state.connections.filter(c => c.from !== nodeId && c.to !== nodeId);
+            // Remove DOM element
+            const el = document.getElementById(nodeId);
+            if (el) el.remove();
+            // Remove from state
+            delete state.nodes[nodeId];
+
+            if (state.selectedNodeId === nodeId) clearSelection();
+            renderConnections();
+            updateSummaryStats();
+            showToast('Device removed from architecture.', 'info');
+        }
+
+        function deleteConnection(connId) {
+            state.connections = state.connections.filter(c => c.id !== connId);
+            if (state.selectedConnectionId === connId) clearSelection();
+            renderConnections();
+            updateSummaryStats();
+            showToast('Cable link removed.', 'info');
+        }
+
+        function confirmClearWorkspace() {
+            showConfirmModal(
+                'Reset Entire Canvas',
+                'This will permanently delete all placed nodes, switches, and cabling links on this canvas. Proceed?',
+                () => {
+                    nodesContainer.innerHTML = '';
+                    cableGroup.innerHTML = '';
+                    state.nodes = {};
+                    state.connections = [];
+                    state.counter = 1;
+                    clearSelection();
+                    updateSummaryStats();
+                    showToast('Workspace reset successfully.', 'info');
+                }
+            );
+        }
+
+        function updateSummaryStats() {
+            const nodeKeys = Object.keys(state.nodes);
+            document.getElementById('stat-nodes-count').textContent = nodeKeys.length;
+            document.getElementById('stat-links-count').textContent = state.connections.length;
+            
+            const totalKW = nodeKeys.reduce((acc, k) => acc + (Number(state.nodes[k].powerKW) || 0), 0);
+            document.getElementById('stat-power-sum').textContent = `${totalKW.toFixed(1)} kW`;
+        }
+
+        // Save layout as JSON file download
+        function exportTopologyJSON() {
+            const payload = {
+                app: 'DCIM-Architect-Studio',
+                version: '2.0',
+                timestamp: new Date().toISOString(),
+                state: {
+                    nodes: state.nodes,
+                    connections: state.connections,
+                    counter: state.counter
+                }
+            };
+
+            const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute('href', dataStr);
+            downloadAnchor.setAttribute('download', `dcim_topology_${new Date().toISOString().slice(0, 10)}.json`);
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+            showToast('Design exported to JSON file', 'success');
+        }
+
+        // Import topology from JSON file
+        function importTopologyJSON(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    const incomingState = parsed.state || parsed;
+
+                    if (!incomingState.nodes || !incomingState.connections) {
+                        throw new Error('Invalid DCIM topology schema');
+                    }
+
+                    // Reset current workspace
+                    nodesContainer.innerHTML = '';
+                    cableGroup.innerHTML = '';
+                    state.nodes = {};
+                    state.connections = [];
+                    clearSelection();
+
+                    // Load new data
+                    state.counter = incomingState.counter || Object.keys(incomingState.nodes).length + 1;
+                    state.connections = incomingState.connections || [];
+
+                    // Rebuild nodes
+                    Object.values(incomingState.nodes).forEach(n => {
+                        createNode(n.archetypeKey || 'rack', n.x, n.y, n);
+                    });
+
+                    renderConnections();
+                    updateSummaryStats();
+                    showToast('Topology imported successfully!', 'success');
+                } catch (err) {
+                    showToast('Error importing file: ' + err.message, 'warning');
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = ''; // Reset file input
+        }
+
+        function showConfirmModal(title, message, onConfirm) {
+            const modal = document.getElementById('custom-modal');
+            const titleEl = document.getElementById('modal-title');
+            const msgEl = document.getElementById('modal-message');
+            const confirmBtn = document.getElementById('modal-btn-confirm');
+            const cancelBtn = document.getElementById('modal-btn-cancel');
+
+            titleEl.textContent = title;
+            msgEl.textContent = message;
+            modal.classList.remove('hidden');
+
+            const cleanup = () => {
+                modal.classList.add('hidden');
+                confirmBtn.onclick = null;
+                cancelBtn.onclick = null;
+            };
+
+            confirmBtn.onclick = () => {
+                cleanup();
+                if (onConfirm) onConfirm();
+            };
+
+            cancelBtn.onclick = () => {
+                cleanup();
+            };
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            const colorMap = {
+                info: 'bg-slate-900 border-indigo-500/60 text-indigo-200',
+                success: 'bg-slate-900 border-emerald-500/60 text-emerald-200',
+                warning: 'bg-slate-900 border-amber-500/60 text-amber-200'
+            };
+
+            toast.className = `p-3 rounded-xl border text-xs font-medium shadow-2xl flex items-center gap-2 transform transition-all duration-300 translate-y-2 opacity-0 ${colorMap[type] || colorMap.info}`;
+            toast.innerHTML = `
+                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <span>${message}</span>
+            `;
+
+            container.appendChild(toast);
+            
+            // Trigger animation
+            setTimeout(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            }, 10);
+
+            // Auto dismiss
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            // Seed a realistic data center reference layout
+            const r1 = createNode('router', 140, 100);
+            updateNodeLabel(r1.id, 'Edge WAN Router 01');
+
+            const fw1 = createNode('firewall', 420, 100);
+            updateNodeLabel(fw1.id, 'Border NGFW Cluster');
+
+            const sw1 = createNode('switch', 700, 100);
+            updateNodeLabel(sw1.id, 'Spine Fabric 100G');
+
+            const rack1 = createNode('rack', 980, 80);
+            updateNodeLabel(rack1.id, 'Compute Pod Rack A01');
+
+            const storage1 = createNode('storage', 980, 240);
+            updateNodeLabel(storage1.id, 'Primary SAN Flash');
+
+            // Facility equipment
+            const pdu1 = createNode('pdu', 420, 360);
+            updateNodeLabel(pdu1.id, 'Row A PDU 150kVA');
+
+            const ups1 = createNode('ups', 140, 360);
+            updateNodeLabel(ups1.id, 'UPS A 500kVA');
+
+            const chiller1 = createNode('chiller', 700, 360);
+            updateNodeLabel(chiller1.id, 'CRAH Unit 01 (Cold Aisle)');
+
+            // Security components
+            const door1 = createNode('door', 140, 560);
+            updateNodeLabel(door1.id, 'Main Mantrap Biometrics');
+
+            const cctv1 = createNode('cctv', 420, 560);
+            updateNodeLabel(cctv1.id, 'Perimeter Dome Cam 04');
+
+            const sensor1 = createNode('sensor', 700, 560);
+            updateNodeLabel(sensor1.id, 'Aisle 01 VESDA Smoke/Temp');
+
+            // Form connections
+            createConnection(r1.id, fw1.id, 'fiber');
+            createConnection(fw1.id, sw1.id, 'fiber');
+            createConnection(sw1.id, rack1.id, 'copper');
+            createConnection(sw1.id, storage1.id, 'fiber');
+            createConnection(ups1.id, pdu1.id, 'power');
+            createConnection(pdu1.id, rack1.id, 'power');
+            createConnection(sw1.id, chiller1.id, 'bms');
+            createConnection(sw1.id, cctv1.id, 'security');
+            createConnection(sw1.id, door1.id, 'security');
+
+            clearSelection();
+            showToast('Loaded Data Center reference architecture!', 'success');
+        });
+    </script>
+</body>
+</html>
