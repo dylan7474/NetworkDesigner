@@ -548,7 +548,7 @@
         <!-- CENTER WORKSPACE: Grid Canvas & Cable Lines -->
         <main id="canvas-container" class="flex-1 h-full overflow-auto relative grid-canvas focus:outline-none" tabindex="0">
             <!-- Scalable World Frame -->
-            <div id="canvas-world" class="absolute top-0 left-0 w-[3600px] h-[2600px] origin-top-left transition-transform duration-75">
+            <div id="canvas-world" class="absolute top-0 left-0 w-[3600px] h-[3200px] origin-top-left transition-transform duration-75">
 
                 <!-- Purdue / Security Zone Backgrounds (drawn behind cables and nodes) -->
                 <div id="zones-container" class="absolute top-0 left-0 w-full h-full z-0 pointer-events-none"></div>
@@ -1041,7 +1041,12 @@
             corp_user: { label: 'Corp User (Remote/VPN)', abbr: 'CORP', color: '#3b82f6' },
             dc_ops_user: { label: 'DC Ops User', abbr: 'OPS', color: '#22c55e' },
             dc_support_user: { label: 'DC Support User', abbr: 'SUP', color: '#14b8a6' },
-            third_party: { label: 'Third-Party / Vendor', abbr: '3RD', color: '#f97316' }
+            third_party: { label: 'Third-Party / Vendor (General)', abbr: '3RD', color: '#f97316' },
+            ot_vendor_bms: { label: '3rd-Party — BMS/EMS Vendor Support', abbr: 'BMSV', color: '#eab308' },
+            ot_vendor_scada: { label: '3rd-Party — SCADA/ICS Vendor Support', abbr: 'SCDV', color: '#ca8a04' },
+            net_vendor: { label: '3rd-Party — Network/Telecom Vendor Support', abbr: 'NETV', color: '#fb923c' },
+            security_vendor: { label: '3rd-Party — Physical Security Vendor Support', abbr: 'SECV', color: '#ea580c' },
+            power_vendor: { label: '3rd-Party — Power/Mechanical Vendor Support', abbr: 'PWRV', color: '#d97706' }
         };
 
         /* Hypervisor cluster zones: styling, and the recommended cap on member hosts */
@@ -1362,7 +1367,7 @@
                     }
 
                     newX = Math.max(12, Math.min(3300, newX));
-                    newY = Math.max(12, Math.min(2400, newY));
+                    newY = Math.max(12, Math.min(3000, newY));
 
                     node.x = newX;
                     node.y = newY;
@@ -2326,7 +2331,7 @@
         function confirmLoadRecommendedDesign() {
             showConfirmModal(
                 'Load Recommended Design',
-                'This replaces everything on the canvas with a reference multi-DC architecture (Purdue zones, a hypervisor cluster, firewalls, and user personas) — a good starting point to adapt. Your current design will be permanently lost unless you\'ve saved it. Proceed?',
+                'This replaces everything on the canvas with a full Purdue-model reference architecture (Level 5 Enterprise down to Level 0 Physical Process, two hypervisor clusters, granular IT/OT services, firewall policy, and multi-vendor 3rd-party access) — a good starting point to adapt. Your current design will be permanently lost unless you\'ve saved it. Proceed?',
                 () => {
                     resetCanvasState();
                     seedDemoLayout();
@@ -2999,160 +3004,253 @@
             seedDemoLayout();
         }
 
+        // ---- Recommended Design seed helpers ----
+
+        // Places a horizontal row of same-archetype nodes and applies each item's label/role/
+        // userType/hypervisor flag/IP in one call, so the reference design's layout code below is
+        // one line per row instead of repeated create/update boilerplate per node. Column x is
+        // purely index-based (fixed 238px pitch = 208px card + 30px gap).
+        function seedRow(archetypeKey, x, y, items) {
+            return items.map((item, i) => {
+                const n = createNode(archetypeKey, x + i * 238, y);
+                updateNodeLabel(n.id, item.label);
+                if (item.role) updateNodeRole(n.id, item.role);
+                if (item.userType) updateNodeUserType(n.id, item.userType);
+                if (item.hv) updateNodeHypervisorFlag(n.id, true);
+                if (item.ip) updateNodeIP(n.id, item.ip);
+                return n;
+            });
+        }
+
+        // addAccessRule() only appends a blank rule; this reads back the one it just pushed onto
+        // the node and fills in its fields in one call.
+        function seedAccessRule(node, fields) {
+            addAccessRule(node.id);
+            const rules = state.nodes[node.id].accessRules;
+            const rule = rules[rules.length - 1];
+            Object.entries(fields).forEach(([field, value]) => updateAccessRule(node.id, rule.id, field, value));
+        }
+
+        // Reference architecture: a full Purdue Enterprise Reference Architecture stack, drawn
+        // top-down the way it's conventionally diagrammed — Level 5 (Enterprise) at the top,
+        // Level 0 (Physical Process) at the bottom, each level's zone spanning the full width of
+        // its row(s) of devices. In a data-center context, Levels 0-2 map onto facility/physical
+        // plant systems (power, cooling, physical security) rather than industrial manufacturing
+        // control, but the segmentation principle — OT only reachable from IT via the Industrial
+        // DMZ — is the same one the Firewall Rule Matrix checks for.
         function seedDemoLayout() {
-            // Seed a realistic data center reference layout
-            const r1 = createNode('router', 140, 100);
-            updateNodeLabel(r1.id, 'Edge WAN Router 01');
+            // ---- Level 5 — Enterprise Network ----
+            const [cloud1, r1, coreRouter1, fw1, vpnGw1, dcsite1] = seedRow('cloud', 80, 100, [
+                { label: 'Public Cloud / Internet Edge' }
+            ]).concat(
+                seedRow('router', 80 + 238, 100, [{ label: 'Edge WAN Router 01' }]),
+                seedRow('core_router', 80 + 238 * 2, 100, [{ label: 'Inter-DC Core Router' }]),
+                seedRow('firewall', 80 + 238 * 3, 100, [{ label: 'Border NGFW Cluster' }]),
+                seedRow('vpn', 80 + 238 * 4, 100, [{ label: 'Remote Access VPN / SD-WAN Gateway' }]),
+                seedRow('dcsite', 80 + 238 * 5, 100, [{ label: 'DR Site — West Region' }])
+            );
+            const [remoteEmployee, scadaVendorRemote] = seedRow('user', 80, 250, [
+                { label: 'Remote Employee (Corp VPN)', userType: 'corp_user' },
+                { label: '3rd-Party — SCADA/ICS Vendor (Remote)', userType: 'ot_vendor_scada' }
+            ]);
+            createZone(50, 60, 1450, 400, { id: 'zone_seed_l5', label: 'Level 5 — Enterprise Network', level: 'l5', accessRoles: [], x: 50, y: 60, width: 1450, height: 400 });
 
-            const fw1 = createNode('firewall', 420, 100);
-            updateNodeLabel(fw1.id, 'Border NGFW Cluster');
+            // ---- Level 4 — Business & IT Logistics ----
+            const [distSw, lb1, siem1, backup1, netVendorPersona, auditorUser] = seedRow('switch', 80, 550, [{ label: 'Distribution Switch 01' }]).concat(
+                seedRow('loadbalancer', 80 + 238, 550, [{ label: 'IT Services Load Balancer' }]),
+                seedRow('siem', 80 + 238 * 2, 550, [{ label: 'SOC SIEM Platform' }]),
+                seedRow('backup', 80 + 238 * 3, 550, [{ label: 'Enterprise Backup Library' }]),
+                seedRow('user', 80 + 238 * 4, 550, [{ label: '3rd-Party — Network/Telecom Vendor', userType: 'net_vendor' }]),
+                seedRow('user', 80 + 238 * 5, 550, [{ label: 'Compliance Auditor (Read-Only)', userType: 'auditor' }])
+            );
+            createZone(50, 510, 2350, 620, { id: 'zone_seed_l4', label: 'Level 4 — Business & IT Logistics', level: 'l4', accessRoles: [], x: 50, y: 510, width: 2350, height: 620 });
 
-            const sw1 = createNode('switch', 700, 100);
-            updateNodeLabel(sw1.id, 'Spine Fabric 100G');
+            createZone(110, 740, 2170, 350, { id: 'zone_seed_l4cluster', label: 'IT Services Hypervisor Cluster', zoneType: 'cluster', accessRoles: [], x: 110, y: 740, width: 2170, height: 350 });
+            const [itHv1, itHv2] = seedRow('server', 130, 780, [
+                { label: 'IT Hypervisor Host 01', hv: true },
+                { label: 'IT Hypervisor Host 02', hv: true }
+            ]);
+            const [adDc01, dns01, ntp01, mail01, file01, ca01, ipam01, bastion01, sso01] = seedRow('vserver', 130, 930, [
+                { label: 'AD-DC01 (Domain Controller)', role: 'ad', ip: '10.240.10.11' },
+                { label: 'DNS01', role: 'dns', ip: '10.240.10.12' },
+                { label: 'NTP01', role: 'ntp', ip: '10.240.10.13' },
+                { label: 'MAIL01 (SMTP/Exchange)', role: 'mail', ip: '10.240.10.14' },
+                { label: 'FILE01', role: 'fileserver', ip: '10.240.10.15' },
+                { label: 'CA01 (PKI Root)', role: 'ca', ip: '10.240.10.16' },
+                { label: 'IPAM01 (DDI)', role: 'ipam', ip: '10.240.10.17' },
+                { label: 'BASTION01 (IT Jump Host)', role: 'bastion', ip: '10.240.10.18' },
+                { label: 'SSO01 (Identity Provider)', role: 'sso', ip: '10.240.10.19' }
+            ]);
 
-            const rack1 = createNode('rack', 980, 80);
-            updateNodeLabel(rack1.id, 'Compute Pod Rack A01');
+            // ---- Level 3.5 — Industrial DMZ ----
+            const [proxyBroker, otBastion, radiusOT] = seedRow('server', 80, 1220, [
+                { label: 'IDMZ Reverse Proxy / Broker', role: 'proxy' },
+                { label: 'OT Jump / Bastion Host', role: 'bastion' },
+                { label: 'OT RADIUS / AAA', role: 'radius' }
+            ]);
+            createZone(50, 1180, 800, 220, { id: 'zone_seed_l35', label: 'Level 3.5 — Industrial DMZ', level: 'l35', accessRoles: [], x: 50, y: 1180, width: 800, height: 220 });
 
-            const storage1 = createNode('storage', 980, 240);
-            updateNodeLabel(storage1.id, 'Primary SAN Flash');
+            // ---- Level 3 — Site Operations (MES) ----
+            const [siteSw, kvmConsole, dcOpsPersona] = seedRow('switch', 80, 1490, [{ label: 'Site Ops Switch' }]).concat(
+                seedRow('kvm', 80 + 238, 1490, [{ label: 'OT Console / KVM Server' }]),
+                seedRow('user', 80 + 238 * 2, 1490, [{ label: 'DC Ops User (Site NOC)', userType: 'dc_ops_user' }])
+            );
+            createZone(50, 1450, 1050, 620, { id: 'zone_seed_l3', label: 'Level 3 — Site Operations (MES)', level: 'l3', accessRoles: [], x: 50, y: 1450, width: 1050, height: 620 });
 
-            // Facility equipment
-            const pdu1 = createNode('pdu', 420, 360);
-            updateNodeLabel(pdu1.id, 'Row A PDU 150kVA');
+            createZone(70, 1680, 1000, 350, { id: 'zone_seed_l3cluster', label: 'Site MES Hypervisor Cluster', zoneType: 'cluster', accessRoles: [], x: 70, y: 1680, width: 1000, height: 350 });
+            const [hv1, hv2] = seedRow('server', 100, 1720, [
+                { label: 'Site Hypervisor Host 01', hv: true },
+                { label: 'Site Hypervisor Host 02', hv: true }
+            ]);
+            const [mesApp01, historianDb01, otMon01, dcim01] = seedRow('vserver', 100, 1870, [
+                { label: 'MES-APP01', role: 'webapp', ip: '10.240.30.11' },
+                { label: 'HISTORIAN-DB01', role: 'database', ip: '10.240.30.12' },
+                { label: 'OT-MON01', role: 'monitoring', ip: '10.240.30.13' },
+                { label: 'DCIM01 (Asset Mgmt)', role: 'dcim', ip: '10.240.30.14' }
+            ]);
 
-            const ups1 = createNode('ups', 140, 360);
-            updateNodeLabel(ups1.id, 'UPS A 500kVA');
+            // ---- Level 2 — Area Supervisory (Facility BMS/EMS/Security Platforms) ----
+            const [bmsSvr, emsSvr, vmsSvr, pacsSvr, apDevice] = seedRow('server', 80, 2160, [
+                { label: 'BMS Supervisory Server', role: 'bms' },
+                { label: 'EMS Supervisory Server', role: 'ems' },
+                { label: 'CCTV / VMS Platform', role: 'cctv_server' },
+                { label: 'Access Control Server (PACS)', role: 'access_control_server' }
+            ]).concat(seedRow('ap', 80 + 238 * 4, 2160, [{ label: 'Facility Wireless AP' }]));
+            const [facilitiesTech, securityOfficer, doorAccessSupport, securityVendor, powerVendor] = seedRow('user', 80, 2310, [
+                { label: 'Facilities / HVAC Technician (On-site)', userType: 'facilities_tech' },
+                { label: 'Security Officer (On-site)', userType: 'security_officer' },
+                { label: 'Door / Badge Access Support', userType: 'door_access_support' },
+                { label: '3rd-Party — Physical Security Vendor', userType: 'security_vendor' },
+                { label: '3rd-Party — Power/Mechanical Vendor', userType: 'power_vendor' }
+            ]);
+            createZone(50, 2120, 1250, 370, { id: 'zone_seed_l2', label: 'Level 2 — Area Supervisory (SCADA/HMI)', level: 'l2', accessRoles: [], x: 50, y: 2120, width: 1250, height: 370 });
 
-            const chiller1 = createNode('chiller', 700, 360);
-            updateNodeLabel(chiller1.id, 'CRAH Unit 01 (Cold Aisle)');
+            // ---- Level 1 — Basic Control (Field Devices/Controllers) ----
+            const [ups1, pdu1, rackpdu1, chiller1, generator1, cctvCam, doorReader, vesdaSensor] = seedRow('ups', 80, 2580, [{ label: 'UPS A 500kVA' }]).concat(
+                seedRow('pdu', 80 + 238, 2580, [{ label: 'Row A PDU 150kVA' }]),
+                seedRow('rackpdu', 80 + 238 * 2, 2580, [{ label: 'Rack PDU In-Row 01' }]),
+                seedRow('chiller', 80 + 238 * 3, 2580, [{ label: 'CRAH Unit 01 (Cold Aisle)' }]),
+                seedRow('generator', 80 + 238 * 4, 2580, [{ label: 'Diesel Genset 01' }]),
+                seedRow('cctv', 80 + 238 * 5, 2580, [{ label: 'Perimeter Dome Cam 04' }]),
+                seedRow('door', 80 + 238 * 6, 2580, [{ label: 'Main Mantrap Biometrics' }]),
+                seedRow('sensor', 80 + 238 * 7, 2580, [{ label: 'Aisle 01 VESDA Smoke/Temp' }])
+            );
+            const [bmsVendor] = seedRow('user', 80 + 238 * 8, 2580, [{ label: '3rd-Party — BMS/EMS Vendor Support', userType: 'ot_vendor_bms' }]);
+            createZone(50, 2540, 2180, 220, { id: 'zone_seed_l1', label: 'Level 1 — Basic Control (PLC/RTU)', level: 'l1', accessRoles: [], x: 50, y: 2540, width: 2180, height: 220 });
 
-            // Security components
-            const door1 = createNode('door', 140, 560);
-            updateNodeLabel(door1.id, 'Main Mantrap Biometrics');
+            // ---- Level 0 — Physical Process ----
+            const [rack1, rack2, firesupp1, patchpanel1] = seedRow('rack', 80, 2850, [{ label: 'Compute Pod Rack A01' }]).concat(
+                seedRow('rack', 80 + 238, 2850, [{ label: 'Compute Pod Rack A02' }]),
+                seedRow('firesuppression', 80 + 238 * 2, 2850, [{ label: 'Fire Suppression (FM-200)' }]),
+                seedRow('patchpanel', 80 + 238 * 3, 2850, [{ label: 'Fiber Patch Panel 01' }])
+            );
+            createZone(50, 2810, 1000, 220, { id: 'zone_seed_l0', label: 'Level 0 — Physical Process', level: 'l0', accessRoles: [], x: 50, y: 2810, width: 1000, height: 220 });
+            state.zoneCounter = 10;
 
-            const cctv1 = createNode('cctv', 420, 560);
-            updateNodeLabel(cctv1.id, 'Perimeter Dome Cam 04');
-
-            const sensor1 = createNode('sensor', 700, 560);
-            updateNodeLabel(sensor1.id, 'Aisle 01 VESDA Smoke/Temp');
-
-            // Individual compute node, within the same site-operations zone as the rack/storage
-            const server1 = createNode('server', 980, 420);
-            updateNodeLabel(server1.id, 'App Server Pod A07');
-
-            // Multi-data-center connectivity: inter-DC backbone, a remote site, and hybrid cloud
-            const coreRouter1 = createNode('core_router', 1280, 100);
-            updateNodeLabel(coreRouter1.id, 'Inter-DC Core Router');
-
-            const dcsite1 = createNode('dcsite', 1280, 280);
-            updateNodeLabel(dcsite1.id, 'DR Site — West Region');
-
-            const cloud1 = createNode('cloud', 1280, 460);
-            updateNodeLabel(cloud1.id, 'Hybrid Cloud (Multi-Region)');
-
-            // Form connections
+            // ---- Cross-level cabling: every hop between levels is a deliberate, documentable
+            // crossing point — mirroring how a real Purdue diagram shows only the controlled paths
+            // between tiers, not full physical mesh detail. ----
+            createConnection(cloud1.id, r1.id, 'fiber');
+            createConnection(r1.id, coreRouter1.id, 'fiber');
             createConnection(r1.id, fw1.id, 'fiber');
-            createConnection(fw1.id, sw1.id, 'fiber');
-            const cRack = createConnection(sw1.id, rack1.id, 'copper');
-            const cStorage = createConnection(sw1.id, storage1.id, 'fiber');
-            const cServer = createConnection(sw1.id, server1.id, 'copper');
-            const cCoreRouter = createConnection(sw1.id, coreRouter1.id, 'fiber');
             createConnection(coreRouter1.id, dcsite1.id, 'fiber');
-            createConnection(coreRouter1.id, cloud1.id, 'fiber');
+            createConnection(fw1.id, vpnGw1.id, 'copper');
+
+            const cCrossL4 = createConnection(fw1.id, distSw.id, 'fiber');
+
+            createConnection(distSw.id, lb1.id, 'copper');
+            createConnection(distSw.id, siem1.id, 'copper');
+            createConnection(distSw.id, backup1.id, 'copper');
+            const cItHv1 = createConnection(distSw.id, itHv1.id, 'copper');
+            const cItHv2 = createConnection(distSw.id, itHv2.id, 'copper');
+
+            const cCrossL35 = createConnection(distSw.id, proxyBroker.id, 'fiber');
+
+            createConnection(proxyBroker.id, otBastion.id, 'copper');
+            createConnection(proxyBroker.id, radiusOT.id, 'copper');
+
+            const cCrossL3 = createConnection(otBastion.id, siteSw.id, 'fiber');
+
+            createConnection(siteSw.id, kvmConsole.id, 'copper');
+            const cL3Hv1 = createConnection(siteSw.id, hv1.id, 'copper');
+            const cL3Hv2 = createConnection(siteSw.id, hv2.id, 'copper');
+
+            createConnection(siteSw.id, bmsSvr.id, 'bms');
+            createConnection(siteSw.id, emsSvr.id, 'bms');
+            createConnection(siteSw.id, vmsSvr.id, 'security');
+            createConnection(siteSw.id, pacsSvr.id, 'security');
+            createConnection(siteSw.id, apDevice.id, 'copper');
+
+            createConnection(bmsSvr.id, ups1.id, 'bms');
+            createConnection(bmsSvr.id, pdu1.id, 'bms');
+            createConnection(bmsSvr.id, rackpdu1.id, 'bms');
+            createConnection(bmsSvr.id, chiller1.id, 'bms');
+            createConnection(bmsSvr.id, generator1.id, 'bms');
+            createConnection(emsSvr.id, vesdaSensor.id, 'bms');
+            createConnection(vmsSvr.id, cctvCam.id, 'security');
+            createConnection(pacsSvr.id, doorReader.id, 'security');
+
             createConnection(ups1.id, pdu1.id, 'power');
             createConnection(pdu1.id, rack1.id, 'power');
-            createConnection(sw1.id, chiller1.id, 'bms');
-            createConnection(sw1.id, cctv1.id, 'security');
-            createConnection(sw1.id, door1.id, 'security');
+            createConnection(rackpdu1.id, rack2.id, 'power');
 
-            // Example Purdue security zones, showing how devices map to enterprise/DMZ/site-operations tiers
-            createZone(110, 70, 270, 170, { id: 'zone_seed_l4', label: 'Level 4 — Enterprise WAN Edge', level: 'l4', accessRoles: [], x: 110, y: 70, width: 270, height: 170 });
-            createZone(390, 70, 270, 170, { id: 'zone_seed_l35', label: 'Level 3.5 — Industrial DMZ', level: 'l35', accessRoles: [], x: 390, y: 70, width: 270, height: 170 });
-            createZone(670, 50, 548, 520, { id: 'zone_seed_l3', label: 'Level 3 — Site Operations (MES)', level: 'l3', accessRoles: [], x: 670, y: 50, width: 548, height: 520 });
-            state.zoneCounter = 4;
-
-            // Example VLANs, tagged onto the access/trunk cables that carry them
+            // ---- VLANs: tag the IT/OT compute-access trunks that carry them ----
             createVlan('10', 'Compute-Access', '10.240.10.0/24');
             createVlan('20', 'Storage-Access', '10.240.20.0/24');
             createVlan('99', 'Mgmt-OOB', '10.240.99.0/24');
-            toggleConnectionVlan(cRack.id, '10', true);
-            toggleConnectionVlan(cServer.id, '10', true);
-            toggleConnectionVlan(cStorage.id, '20', true);
-            toggleConnectionVlan(cCoreRouter.id, '10', true);
-            toggleConnectionVlan(cCoreRouter.id, '20', true);
-            toggleConnectionVlan(cCoreRouter.id, '99', true);
-
-            // Example server role tag and zone access-control tagging
-            updateNodeRole(server1.id, 'webapp');
-            toggleZoneAccessRole('zone_seed_l4', 'network_ops', true);
-            toggleZoneAccessRole('zone_seed_l4', 'dc_manager', true);
-            toggleZoneAccessRole('zone_seed_l35', 'security_officer', true);
-            toggleZoneAccessRole('zone_seed_l35', 'network_ops', true);
-            toggleZoneAccessRole('zone_seed_l3', 'dc_user', true);
-            toggleZoneAccessRole('zone_seed_l3', 'dc_manager', true);
-
-            // Hypervisor cluster: a Cluster-type zone nested inside its own Purdue security zone.
-            // Hosts (Physical Server, isHypervisor:true) and guests (Virtual Server) are both
-            // ordinary compute nodes dragged inside the cluster's rectangle — membership (and the
-            // host/guest split) is purely geometric, detected by getClusterHostNodes()/
-            // getClusterGuestNodes(), never stored on the zone itself.
-            createZone(140, 710, 750, 580, { id: 'zone_seed_l3v', label: 'Level 3 — Virtualization Farm', level: 'l3', zoneType: 'purdue', accessRoles: ['dc_manager', 'network_ops'], x: 140, y: 710, width: 750, height: 580 });
-            createZone(165, 920, 700, 330, {
-                id: 'zone_seed_cluster',
-                label: 'Prod Hypervisor Cluster',
-                zoneType: 'cluster',
-                accessRoles: ['dc_manager', 'network_ops'],
-                x: 165, y: 920, width: 700, height: 330
-            });
-            state.zoneCounter = 6;
-
-            const hv1 = createNode('server', 185, 945);
-            updateNodeLabel(hv1.id, 'Hypervisor Host 01');
-            updateNodeHypervisorFlag(hv1.id, true);
-
-            const hv2 = createNode('server', 420, 945);
-            updateNodeLabel(hv2.id, 'Hypervisor Host 02');
-            updateNodeHypervisorFlag(hv2.id, true);
-
-            const cHv1 = createConnection(sw1.id, hv1.id, 'copper');
-            const cHv2 = createConnection(sw1.id, hv2.id, 'copper');
-            [cHv1, cHv2].forEach(c => {
+            [cCrossL4, cItHv1, cItHv2, cL3Hv1, cL3Hv2].forEach(c => {
                 toggleConnectionVlan(c.id, '10', true);
                 toggleConnectionVlan(c.id, '20', true);
                 toggleConnectionVlan(c.id, '99', true);
             });
+            toggleNodeVlan(distSw.id, '10', true);
+            toggleNodeVlan(distSw.id, '20', true);
+            toggleNodeVlan(distSw.id, '99', true);
 
-            // Guest VMs: Virtual Server nodes dragged into the same cluster zone as the hosts
-            // above, running various roles — this is what replaces the old free-text "Guest VM
-            // roster" model.
-            const vm1 = createNode('vserver', 185, 1080);
-            updateNodeLabel(vm1.id, 'AD-DC01 (Domain Controller)');
-            updateNodeRole(vm1.id, 'ad');
-            updateNodeIP(vm1.id, '10.240.10.21');
+            // ---- Firewall rules: a device-level policy, distinct from the auto-derived Firewall
+            // Rule Matrix — this is what the border firewall is actually configured to do. ----
+            seedAccessRule(fw1, { action: 'allow', protocol: 'tcp', source: 'Enterprise (L5)', destination: 'IT Services (L4)', port: '443,1433,25', note: 'HTTPS mgmt, SQL replication, SMTP relay' });
+            seedAccessRule(fw1, { action: 'deny', protocol: 'any', source: 'Enterprise (L5)', destination: 'Site Operations (L3) / OT', note: 'No direct L5→L3 path — must transit the Industrial DMZ broker' });
 
-            const vm2 = createNode('vserver', 420, 1080);
-            updateNodeLabel(vm2.id, 'WEB-APP02');
-            updateNodeRole(vm2.id, 'webapp');
-            updateNodeIP(vm2.id, '10.240.10.22');
-
-            const vm3 = createNode('vserver', 655, 1080);
-            updateNodeLabel(vm3.id, 'DB-SQL03');
-            updateNodeRole(vm3.id, 'database');
-            updateNodeIP(vm3.id, '10.240.20.15');
-
-            // Example User/Persona objects: one compliant with its zone's Authorized Access list,
-            // one flagged (red ring) to demonstrate the access-compliance check.
-            const contractor = createNode('user', 170, 730);
-            updateNodeLabel(contractor.id, 'Contractor Remote Access');
-            updateNodeUserType(contractor.id, 'third_party');
-
-            const opsManager = createNode('user', 420, 730);
-            updateNodeLabel(opsManager.id, 'Ops Manager (On-site)');
-            updateNodeUserType(opsManager.id, 'dc_manager');
+            // ---- Zone access-control: who's authorized where. Every persona below is added to
+            // its own zone's Authorized Access list except scadaVendorRemote, which is left off L5
+            // on purpose — a remote vendor whose access should be scoped to the OT systems they
+            // support, not the enterprise edge zone they happen to land in. Selecting that node
+            // shows the resulting violation ring, the same compliance check the rest of the
+            // personas below are configured to satisfy. ----
+            toggleZoneAccessRole('zone_seed_l5', 'network_ops', true);
+            toggleZoneAccessRole('zone_seed_l5', 'dc_manager', true);
+            toggleZoneAccessRole('zone_seed_l5', 'corp_user', true);
+            toggleZoneAccessRole('zone_seed_l4', 'network_ops', true);
+            toggleZoneAccessRole('zone_seed_l4', 'dc_manager', true);
+            toggleZoneAccessRole('zone_seed_l4', 'storage_admin', true);
+            toggleZoneAccessRole('zone_seed_l4', 'auditor', true);
+            toggleZoneAccessRole('zone_seed_l4', 'net_vendor', true);
+            toggleZoneAccessRole('zone_seed_l4cluster', 'dc_manager', true);
+            toggleZoneAccessRole('zone_seed_l4cluster', 'network_ops', true);
+            toggleZoneAccessRole('zone_seed_l4cluster', 'storage_admin', true);
+            toggleZoneAccessRole('zone_seed_l35', 'security_officer', true);
+            toggleZoneAccessRole('zone_seed_l35', 'network_ops', true);
+            toggleZoneAccessRole('zone_seed_l3', 'dc_user', true);
+            toggleZoneAccessRole('zone_seed_l3', 'dc_manager', true);
+            toggleZoneAccessRole('zone_seed_l3', 'dc_ops_user', true);
+            toggleZoneAccessRole('zone_seed_l3cluster', 'dc_manager', true);
+            toggleZoneAccessRole('zone_seed_l3cluster', 'network_ops', true);
+            toggleZoneAccessRole('zone_seed_l2', 'facilities_tech', true);
+            toggleZoneAccessRole('zone_seed_l2', 'security_officer', true);
+            toggleZoneAccessRole('zone_seed_l2', 'door_access_support', true);
+            toggleZoneAccessRole('zone_seed_l2', 'security_vendor', true);
+            toggleZoneAccessRole('zone_seed_l2', 'power_vendor', true);
+            toggleZoneAccessRole('zone_seed_l1', 'facilities_tech', true);
+            toggleZoneAccessRole('zone_seed_l1', 'security_officer', true);
+            toggleZoneAccessRole('zone_seed_l1', 'ot_vendor_bms', true);
+            toggleZoneAccessRole('zone_seed_l0', 'dc_manager', true);
+            toggleZoneAccessRole('zone_seed_l0', 'facilities_tech', true);
+            toggleZoneAccessRole('zone_seed_l0', 'storage_admin', true);
 
             clearSelection();
             scheduleAutosave();
-            showToast('Loaded multi-DC reference architecture with a hypervisor cluster & user personas!', 'success');
+            showToast('Loaded a full Purdue-model reference design (L5→L0) with dual hypervisor clusters, granular services, and multi-vendor 3rd-party access!', 'success');
         }
 
         window.addEventListener('DOMContentLoaded', bootApp);
