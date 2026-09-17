@@ -1598,31 +1598,65 @@
         // genuinely outside it, plus a little breathing room.
         const ROUTE_DETOUR_MARGIN = NODE_COLLISION_H / 2 + 30;
 
-        // Searches both bend orientations (preferring `primaryHorizontalFirst`) for a fully clear
-        // route. For each, tries the plain midpoint shelf first (the natural-looking route when
-        // nothing's in the way), then two detours clear of each endpoint's own row/column band —
-        // and whenever an attempt is blocked, adaptively retries just past whatever specifically
-        // blocked it (that obstacle's near/far edge), rather than only ever guessing a fixed
-        // one-card-height offset. That adaptive step is what lets the router clear an obstruction
-        // of any size — a whole stacked row of personas, a nested cluster zone — since it reacts
-        // to what's actually in the way instead of a fixed margin sized for a single card. Falls
-        // back to the primary orientation's plain midpoint (best effort) if nothing tried is
-        // clear. Bounded and cheap enough to run on every render, including interactive dragging.
-        function findClearRoute(p1, p2, primaryHorizontalFirst, obstacles) {
+        // How close a segment can run parallel to a zone's border before it reads as tracing the
+        // zone's own outline rather than just crossing it (crossing is normal — most inter-level
+        // cables cross several zone borders on the way — only running *along* one is the problem).
+        const ZONE_BORDER_AVOID = 10;
+
+        // True if this segment runs parallel to, and within ZONE_BORDER_AVOID px of, one of a
+        // zone's four border lines over some overlapping stretch. Direction-aware on purpose: a
+        // vertical segment is only checked against the zone's (vertical) left/right edges, a
+        // horizontal one only against its top/bottom — a perpendicular crossing segment can never
+        // match, however long it runs through the zone.
+        function segmentHugsZoneBorder(ax, ay, bx, by, zone) {
+            if (ax === bx) {
+                const loY = Math.min(ay, by), hiY = Math.max(ay, by);
+                return [zone.x, zone.x + zone.width].some(edgeX =>
+                    Math.abs(ax - edgeX) <= ZONE_BORDER_AVOID && hiY > zone.y && loY < zone.y + zone.height);
+            }
+            const loX = Math.min(ax, bx), hiX = Math.max(ax, bx);
+            return [zone.y, zone.y + zone.height].some(edgeY =>
+                Math.abs(ay - edgeY) <= ZONE_BORDER_AVOID && hiX > zone.x && loX < zone.x + zone.width);
+        }
+
+        function routeHugsAnyZoneBorder(points, zones) {
+            for (let i = 0; i < points.length - 1; i++) {
+                for (const z of zones) {
+                    if (segmentHugsZoneBorder(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, z)) return true;
+                }
+            }
+            return false;
+        }
+
+        function routeIsClear(points, obstacles, zones) {
+            return routeBlockingObstacles(points, obstacles).length === 0 && !routeHugsAnyZoneBorder(points, zones);
+        }
+
+        // Searches both bend orientations (preferring `primaryHorizontalFirst`) for a route that's
+        // both obstacle-free and doesn't run along any zone's border. For each orientation, tries
+        // the plain midpoint shelf first (the natural-looking route when nothing's in the way),
+        // then two detours clear of each endpoint's own row/column band — and whenever an attempt
+        // is blocked by an obstacle, adaptively retries just past whatever specifically blocked it
+        // (that obstacle's near/far edge), rather than only ever guessing a fixed one-card-height
+        // offset. That adaptive step is what lets the router clear an obstruction of any size — a
+        // whole stacked row of personas, a nested cluster zone — since it reacts to what's actually
+        // in the way instead of a fixed margin sized for a single card. Falls back to the primary
+        // orientation's plain midpoint (best effort) if nothing tried is fully clear. Bounded and
+        // cheap enough to run on every render, including interactive dragging.
+        function findClearRoute(p1, p2, primaryHorizontalFirst, obstacles, zones) {
             for (const horizontalFirst of [primaryHorizontalFirst, !primaryHorizontalFirst]) {
                 const a = horizontalFirst ? p1.x : p1.y;
                 const b = horizontalFirst ? p2.x : p2.y;
                 const baseShelves = [(a + b) / 2, a - ROUTE_DETOUR_MARGIN, a + ROUTE_DETOUR_MARGIN, b - ROUTE_DETOUR_MARGIN, b + ROUTE_DETOUR_MARGIN];
                 for (const shelf of baseShelves) {
                     const route = buildRouteAt(p1, p2, horizontalFirst, shelf);
-                    const blockers = routeBlockingObstacles(route.points, obstacles);
-                    if (blockers.length === 0) return route;
-                    for (const rect of blockers) {
+                    if (routeIsClear(route.points, obstacles, zones)) return route;
+                    for (const rect of routeBlockingObstacles(route.points, obstacles)) {
                         const near = horizontalFirst ? rect.x : rect.y;
                         const far = horizontalFirst ? rect.x + rect.w : rect.y + rect.h;
                         for (const altShelf of [near - 24, far + 24]) {
                             const altRoute = buildRouteAt(p1, p2, horizontalFirst, altShelf);
-                            if (routeBlockingObstacles(altRoute.points, obstacles).length === 0) return altRoute;
+                            if (routeIsClear(altRoute.points, obstacles, zones)) return altRoute;
                         }
                     }
                 }
@@ -1635,7 +1669,8 @@
             cableGroup.innerHTML = '';
             const orthogonal = state.cableRouting === 'orthogonal';
             const allNodes = orthogonal ? Object.values(state.nodes) : null;
-            const clusterZones = orthogonal ? Object.values(state.zones).filter(z => z.zoneType === 'cluster') : null;
+            const allZones = orthogonal ? Object.values(state.zones) : null;
+            const clusterZones = orthogonal ? allZones.filter(z => z.zoneType === 'cluster') : null;
 
             state.connections.forEach(conn => {
                 const n1 = state.nodes[conn.from];
@@ -1660,7 +1695,7 @@
                 const connVlans = conn.vlanIds || [];
                 const isDimmed = state.highlightVlanId && !connVlans.includes(state.highlightVlanId);
 
-                const route = orthogonal ? findClearRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones)) : null;
+                const route = orthogonal ? findClearRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones) : null;
                 const midX = route ? route.midX : (p1.x + p2.x) / 2;
                 const midY = route ? route.midY : (p1.y + p2.y) / 2;
 
