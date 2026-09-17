@@ -1399,13 +1399,14 @@
                         el.style.left = `${newX}px`;
                         el.style.top = `${newY}px`;
                     }
-                    renderConnections();
+                    renderConnections(true);
                 },
                 onUp: () => {
                     window.removeEventListener('mousemove', activeDrag.onMove);
                     window.removeEventListener('mouseup', activeDrag.onUp);
                     activeDrag = null;
                     refreshZoneDerivedState();
+                    renderConnections();
                     scheduleAutosave();
                 }
             };
@@ -1665,7 +1666,266 @@
             return buildRouteAt(p1, p2, primaryHorizontalFirst, fallbackShelf);
         }
 
-        function renderConnections() {
+        // ---- Grid-based A* router ----
+        // findClearRoute() above is a fast few-candidate heuristic — good enough for live feedback
+        // while dragging, but it can only bend once, so it can never route around an obstacle that
+        // blocks a route's *outer* segment rather than its bend (documented limitation from the
+        // previous pass). This is real pathfinding: a fine grid over the area between the two
+        // points, A* search with a turn penalty (fewer, longer straight runs instead of a staircase)
+        // and a zone-border cost (discourages hugging without forbidding the perpendicular crossings
+        // every inter-level cable needs to make), producing a route that actually goes around
+        // whatever's in the way, however it's shaped. It's the router renderConnections() uses for
+        // the settled/high-quality pass; findClearRoute() remains the live-drag preview because A*
+        // is materially more expensive per connection (see GRID_MAX_ITERATIONS).
+
+        const GRID_CELL_BASE = 24; // matches the app's snap-to-grid pitch
+        const GRID_SEARCH_MARGINS = [260, 700, 1600]; // how far past the two endpoints the search area extends — escalates if a smaller area can't route around what's in the way
+        const GRID_TARGET_CELLS = 7000; // adaptively coarsen the grid for very long connections to stay near this cell budget
+        const GRID_TURN_PENALTY = 3; // cost of a bend, in cell-steps — biases toward long straight runs
+        const GRID_MAX_ITERATIONS = 20000; // safety cap so a pathological region can't hang a render
+
+        function MinHeap() {
+            this.items = [];
+        }
+        MinHeap.prototype.push = function (item, priority) {
+            this.items.push({ item, priority });
+            let i = this.items.length - 1;
+            while (i > 0) {
+                const parent = (i - 1) >> 1;
+                if (this.items[parent].priority <= this.items[i].priority) break;
+                [this.items[parent], this.items[i]] = [this.items[i], this.items[parent]];
+                i = parent;
+            }
+        };
+        MinHeap.prototype.pop = function () {
+            if (this.items.length === 0) return null;
+            const top = this.items[0];
+            const last = this.items.pop();
+            if (this.items.length > 0) {
+                this.items[0] = last;
+                let i = 0;
+                for (;;) {
+                    const l = i * 2 + 1, r = i * 2 + 2;
+                    let smallest = i;
+                    if (l < this.items.length && this.items[l].priority < this.items[smallest].priority) smallest = l;
+                    if (r < this.items.length && this.items[r].priority < this.items[smallest].priority) smallest = r;
+                    if (smallest === i) break;
+                    [this.items[i], this.items[smallest]] = [this.items[smallest], this.items[i]];
+                    i = smallest;
+                }
+            }
+            return top.item;
+        };
+        Object.defineProperty(MinHeap.prototype, 'size', { get() { return this.items.length; } });
+
+        // A* over a grid spanning the area between p1 and p2 (plus margin), 4-connected, with a
+        // per-move turn penalty and hard direction-specific zone-border avoidance (see hBlockGrid/
+        // vBlockGrid below). Returns an array of world-space {x,y} points (grid-aligned — see the
+        // note on endpoint snapping below) or null if no path was found within the iteration budget.
+        //
+        // Tries each margin in GRID_SEARCH_MARGINS in turn: a search area sized for typical
+        // obstacles (a card, a modest cluster) is usually enough and stays cheap, but routing
+        // *around* something much larger — a cluster zone spanning most of a level — needs a
+        // search area wide enough to actually get past it, so a failed attempt retries wider
+        // rather than giving up. Escalating this way keeps the common case fast while still
+        // solving the rare, expensive case instead of silently falling back to the cruder heuristic
+        // router for every large obstacle.
+        function findGridPath(p1, p2, obstacles, zones) {
+            for (const margin of GRID_SEARCH_MARGINS) {
+                const result = findGridPathInRegion(p1, p2, obstacles, zones, margin);
+                if (result) return result;
+            }
+            return null;
+        }
+
+        function findGridPathInRegion(p1, p2, obstacles, zones, margin) {
+            const minX = Math.min(p1.x, p2.x) - margin;
+            const maxX = Math.max(p1.x, p2.x) + margin;
+            const minY = Math.min(p1.y, p2.y) - margin;
+            const maxY = Math.max(p1.y, p2.y) + margin;
+
+            let cell = GRID_CELL_BASE;
+            while (((maxX - minX) / cell) * ((maxY - minY) / cell) > GRID_TARGET_CELLS) cell += 8;
+
+            const gw = Math.max(1, Math.round((maxX - minX) / cell)) + 1;
+            const gh = Math.max(1, Math.round((maxY - minY) / cell)) + 1;
+            const toGX = x => Math.round((x - minX) / cell);
+            const toGY = y => Math.round((y - minY) / cell);
+            const toWX = gx => minX + gx * cell;
+            const toWY = gy => minY + gy * cell;
+            const clampI = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
+
+            const sx = toGX(p1.x), sy = toGY(p1.y);
+            const ex = toGX(p2.x), ey = toGY(p2.y);
+
+            // Precompute blocked/border-penalty cells once, per obstacle/zone (each only touches
+            // its own small footprint), rather than testing every obstacle/zone against every cell
+            // the search happens to visit — that lazy version was the dominant cost by far.
+            const cellIndex = (gx, gy) => gy * gw + gx;
+            const blockedGrid = new Uint8Array(gw * gh);
+            obstacles.forEach(r => {
+                const gx0 = clampI(Math.floor((r.x - minX) / cell), 0, gw - 1);
+                const gx1 = clampI(Math.ceil((r.x + r.w - minX) / cell), 0, gw - 1);
+                const gy0 = clampI(Math.floor((r.y - minY) / cell), 0, gh - 1);
+                const gy1 = clampI(Math.ceil((r.y + r.h - minY) / cell), 0, gh - 1);
+                for (let gy = gy0; gy <= gy1; gy++) {
+                    for (let gx = gx0; gx <= gx1; gx++) blockedGrid[cellIndex(gx, gy)] = 1;
+                }
+            });
+            blockedGrid[cellIndex(sx, sy)] = 0;
+            blockedGrid[cellIndex(ex, ey)] = 0;
+
+            // Border avoidance is a hard, *direction-specific* constraint, not a soft cost — a
+            // penalty the router is merely discouraged from paying still gets paid when the
+            // detour to avoid it looks expensive enough, which is exactly the hugging this exists
+            // to prevent. hBlockGrid forbids HORIZONTAL moves near a zone's top/bottom edge (that's
+            // what tracing it looks like); vBlockGrid forbids VERTICAL moves near its left/right
+            // edge. A move perpendicular to a nearby edge — every zone crossing every inter-level
+            // cable makes — is never restricted by either grid, so crossing stays completely free.
+            const hBlockGrid = new Uint8Array(gw * gh);
+            const vBlockGrid = new Uint8Array(gw * gh);
+            // Just the single grid line nearest each border, not a multi-cell band around it: at
+            // this resolution even a 1-cell margin is already ~24px wide, and this app's Purdue
+            // zones are often only ~50px apart — a wider band from each of two adjacent zones
+            // would merge across that gap and wall it off entirely, making everything on the far
+            // side unreachable (this happened; see the fix note below the zones.forEach loop).
+            const avoidCells = 0;
+            const markStrip = (grid, gx0, gx1, gy0, gy1) => {
+                gx0 = clampI(gx0, 0, gw - 1); gx1 = clampI(gx1, 0, gw - 1);
+                gy0 = clampI(gy0, 0, gh - 1); gy1 = clampI(gy1, 0, gh - 1);
+                for (let gy = gy0; gy <= gy1; gy++) {
+                    for (let gx = gx0; gx <= gx1; gx++) grid[cellIndex(gx, gy)] = 1;
+                }
+            };
+            zones.forEach(z => {
+                const zgx0 = Math.round((z.x - minX) / cell), zgx1 = Math.round((z.x + z.width - minX) / cell);
+                const zgy0 = Math.round((z.y - minY) / cell), zgy1 = Math.round((z.y + z.height - minY) / cell);
+                markStrip(hBlockGrid, zgx0, zgx1, zgy0 - avoidCells, zgy0 + avoidCells); // top edge
+                markStrip(hBlockGrid, zgx0, zgx1, zgy1 - avoidCells, zgy1 + avoidCells); // bottom edge
+                markStrip(vBlockGrid, zgx0 - avoidCells, zgx0 + avoidCells, zgy0, zgy1); // left edge
+                markStrip(vBlockGrid, zgx1 - avoidCells, zgx1 + avoidCells, zgy0, zgy1); // right edge
+            });
+
+            const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+            // Numeric state key (avoids per-state string allocation): 5 direction slots (-1..3
+            // offset to 0..4) per cell.
+            const key = (x, y, d) => (y * gw + x) * 5 + (d + 1);
+            const records = new Map();
+            const heap = new MinHeap();
+            const heuristic = (x, y) => Math.abs(x - ex) + Math.abs(y - ey);
+
+            const startKey = key(sx, sy, -1);
+            records.set(startKey, { x: sx, y: sy, d: -1, g: 0, parentKey: null });
+            heap.push(startKey, heuristic(sx, sy));
+
+            let goalKey = null;
+            let iterations = 0;
+            while (heap.size > 0 && iterations++ < GRID_MAX_ITERATIONS) {
+                const curKey = heap.pop();
+                const cur = records.get(curKey);
+                if (cur.x === ex && cur.y === ey) { goalKey = curKey; break; }
+                for (let di = 0; di < DIRS.length; di++) {
+                    const nx = cur.x + DIRS[di][0], ny = cur.y + DIRS[di][1];
+                    if (nx < 0 || ny >= gh || ny < 0 || nx >= gw) continue;
+                    if (blockedGrid[cellIndex(nx, ny)]) continue;
+                    const movingHorizontally = DIRS[di][1] === 0;
+                    if (movingHorizontally && hBlockGrid[cellIndex(nx, ny)]) continue;
+                    if (!movingHorizontally && vBlockGrid[cellIndex(nx, ny)]) continue;
+                    const turnCost = (cur.d !== -1 && cur.d !== di) ? GRID_TURN_PENALTY : 0;
+                    const tentativeG = cur.g + 1 + turnCost;
+                    const nKey = key(nx, ny, di);
+                    const existing = records.get(nKey);
+                    if (!existing || tentativeG < existing.g) {
+                        records.set(nKey, { x: nx, y: ny, d: di, g: tentativeG, parentKey: curKey });
+                        heap.push(nKey, tentativeG + heuristic(nx, ny));
+                    }
+                }
+            }
+            if (!goalKey) {
+                return null;
+            }
+
+            // Endpoints are snapped to the grid (not the exact edge-anchor point) so every segment
+            // stays perfectly axis-aligned — off by at most half a cell (12px), imperceptible next
+            // to a 208px-wide card.
+            const path = [];
+            let k = goalKey;
+            while (k) {
+                const rec = records.get(k);
+                path.push({ x: toWX(rec.x), y: toWY(rec.y) });
+                k = rec.parentKey;
+            }
+            path.reverse();
+            return path;
+        }
+
+        // Collapses consecutive collinear points (a straight run the grid search took multiple
+        // steps to produce) into single segments, and drops any accidental zero-length step.
+        function simplifyOrthogonalPath(points) {
+            const deduped = points.filter((p, i) => i === 0 || p.x !== points[i - 1].x || p.y !== points[i - 1].y);
+            if (deduped.length < 3) return deduped;
+            const simplified = [deduped[0]];
+            for (let i = 1; i < deduped.length - 1; i++) {
+                const prev = simplified[simplified.length - 1];
+                const cur = deduped[i];
+                const next = deduped[i + 1];
+                const dirIn = cur.x === prev.x ? 'v' : 'h';
+                const dirOut = next.x === cur.x ? 'v' : 'h';
+                if (dirIn !== dirOut) simplified.push(cur);
+            }
+            simplified.push(deduped[deduped.length - 1]);
+            return simplified;
+        }
+
+        // The point at half the route's total (Manhattan) length — not just the middle *point* in
+        // the array, since segments can be very different lengths — plus a unit vector
+        // perpendicular to whichever segment that point falls on, for the badge/VLAN chips.
+        function pathMidpoint(points) {
+            const segLens = [];
+            let totalLen = 0;
+            for (let i = 0; i < points.length - 1; i++) {
+                const len = Math.abs(points[i + 1].x - points[i].x) + Math.abs(points[i + 1].y - points[i].y);
+                segLens.push(len);
+                totalLen += len;
+            }
+            let remaining = totalLen / 2;
+            for (let i = 0; i < segLens.length; i++) {
+                if (remaining <= segLens[i] || i === segLens.length - 1) {
+                    const a = points[i], b = points[i + 1];
+                    const t = segLens[i] === 0 ? 0 : remaining / segLens[i];
+                    const isVertical = a.x === b.x;
+                    return {
+                        midX: a.x + (b.x - a.x) * t,
+                        midY: a.y + (b.y - a.y) * t,
+                        perpX: isVertical ? 1 : 0,
+                        perpY: isVertical ? 0 : 1
+                    };
+                }
+                remaining -= segLens[i];
+            }
+            const mid = points[Math.floor(points.length / 2)];
+            return { midX: mid.x, midY: mid.y, perpX: 1, perpY: 0 };
+        }
+
+        function pointsToPathD(points) {
+            return points.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`).join(' ');
+        }
+
+        // Full route for a connection: real A* pathfinding when possible, falling back to the fast
+        // heuristic router (which always returns something) if the grid search fails outright —
+        // e.g. both endpoints boxed in by obstacles within the search margin.
+        function findBestRoute(p1, p2, horizontalFirst, obstacles, zones) {
+            const gridPoints = findGridPath(p1, p2, obstacles, zones);
+            const points = gridPoints ? simplifyOrthogonalPath(gridPoints) : findClearRoute(p1, p2, horizontalFirst, obstacles, zones).points;
+            return { points, d: pointsToPathD(points), ...pathMidpoint(points) };
+        }
+
+        // `fast`: use the cheap heuristic router instead of full A* — for live feedback while
+        // dragging a node/zone, where this runs on every mousemove tick and A*'s per-connection
+        // cost would add up. Callers that trigger a drag's own onMove pass true; every other call
+        // site (selection, VLAN/toggle changes, node/zone create-delete, drag-end, boot) omits it
+        // and gets the high-quality routed pass.
+        function renderConnections(fast) {
             cableGroup.innerHTML = '';
             const orthogonal = state.cableRouting === 'orthogonal';
             const allNodes = orthogonal ? Object.values(state.nodes) : null;
@@ -1695,7 +1955,11 @@
                 const connVlans = conn.vlanIds || [];
                 const isDimmed = state.highlightVlanId && !connVlans.includes(state.highlightVlanId);
 
-                const route = orthogonal ? findClearRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones) : null;
+                const route = orthogonal
+                    ? (fast
+                        ? findClearRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones)
+                        : findBestRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones))
+                    : null;
                 const midX = route ? route.midX : (p1.x + p2.x) / 2;
                 const midY = route ? route.midY : (p1.y + p2.y) / 2;
 
@@ -2866,12 +3130,13 @@
                         czEl.style.top = `${cz.y}px`;
                     }
                 });
-                if (childNodes.length) renderConnections();
+                if (childNodes.length) renderConnections(true);
             };
             const onUp = () => {
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
                 refreshZoneDerivedState();
+                if (childNodes.length) renderConnections();
                 scheduleAutosave();
             };
             window.addEventListener('mousemove', onMove);
