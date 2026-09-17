@@ -138,6 +138,11 @@
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
             </button>
 
+            <!-- Cable Routing Toggle: orthogonal (PCB-trace style right-angle routing) vs straight point-to-point -->
+            <button id="btn-routing" onclick="toggleCableRouting()" title="Cable Routing: Orthogonal (PCB-style)" class="p-2 rounded-lg text-indigo-400 bg-slate-800 hover:text-slate-200 hover:bg-slate-700 transition border border-indigo-500">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 4v6a4 4 0 004 4h6m0 0l-3-3m3 3l-3 3"></path></svg>
+            </button>
+
             <!-- Zoom Controls -->
             <div class="flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700">
                 <button onclick="adjustZoom(-0.1)" class="p-1.5 text-slate-400 hover:text-white rounded hover:bg-slate-700 transition" title="Zoom Out">
@@ -1081,6 +1086,7 @@
             selectedConnectionId: null,
             selectedZoneId: null,
             snapToGrid: true,
+            cableRouting: 'orthogonal', // 'orthogonal' (PCB-trace style right angles) or 'straight' — a view preference, not persisted in saved designs
             zoom: 1.0,
             mode: 'select', // 'select', 'connect', or 'zone'
             activeCableType: 'fiber',
@@ -1101,6 +1107,7 @@
         const toolConnectBtn = document.getElementById('tool-connect');
         const toolZoneBtn = document.getElementById('tool-zone');
         const snapBtn = document.getElementById('btn-snap');
+        const routingBtn = document.getElementById('btn-routing');
         const zoomLabel = document.getElementById('zoom-label');
         const vlanHighlightSelect = document.getElementById('vlan-highlight-select');
         const vlanModal = document.getElementById('vlan-modal');
@@ -1193,6 +1200,17 @@
             snapBtn.classList.toggle('border', state.snapToGrid);
             snapBtn.classList.toggle('border-indigo-500', state.snapToGrid);
             showToast(`Snap to Grid: ${state.snapToGrid ? 'ON (24px)' : 'OFF'}`);
+        }
+
+        function toggleCableRouting() {
+            state.cableRouting = state.cableRouting === 'orthogonal' ? 'straight' : 'orthogonal';
+            const isOrthogonal = state.cableRouting === 'orthogonal';
+            routingBtn.classList.toggle('text-indigo-400', isOrthogonal);
+            routingBtn.classList.toggle('border', isOrthogonal);
+            routingBtn.classList.toggle('border-indigo-500', isOrthogonal);
+            routingBtn.title = `Cable Routing: ${isOrthogonal ? 'Orthogonal (PCB-style)' : 'Straight'}`;
+            renderConnections();
+            showToast(`Cable Routing: ${isOrthogonal ? 'Orthogonal (PCB-style)' : 'Straight line'}`);
         }
 
         function adjustZoom(delta) {
@@ -1492,8 +1510,33 @@
             return newConn;
         }
 
+        // Computes a 3-segment right-angle ("PCB trace") route between two points, bending on
+        // whichever axis has the larger gap first so it reads as one clean elbow rather than a
+        // zigzag. Returns the SVG path `d`, the point on the path to anchor the badge/VLAN chips
+        // (the middle segment's own midpoint — not just the endpoints' average, which for an
+        // offset elbow wouldn't actually sit on the path), and a unit vector perpendicular to
+        // that middle segment for offsetting the chips off it.
+        function computeOrthogonalRoute(p1, p2) {
+            const dx = p2.x - p1.x, dy = p2.y - p1.y;
+            if (Math.abs(dx) >= Math.abs(dy)) {
+                const midX = p1.x + dx / 2;
+                return {
+                    d: `M ${p1.x} ${p1.y} L ${midX} ${p1.y} L ${midX} ${p2.y} L ${p2.x} ${p2.y}`,
+                    midX, midY: (p1.y + p2.y) / 2,
+                    perpX: 1, perpY: 0
+                };
+            }
+            const midY = p1.y + dy / 2;
+            return {
+                d: `M ${p1.x} ${p1.y} L ${p1.x} ${midY} L ${p2.x} ${midY} L ${p2.x} ${p2.y}`,
+                midX: (p1.x + p2.x) / 2, midY,
+                perpX: 0, perpY: 1
+            };
+        }
+
         function renderConnections() {
             cableGroup.innerHTML = '';
+            const orthogonal = state.cableRouting === 'orthogonal';
 
             state.connections.forEach(conn => {
                 const n1 = state.nodes[conn.from];
@@ -1506,6 +1549,9 @@
                 const isSelected = state.selectedConnectionId === conn.id;
                 const connVlans = conn.vlanIds || [];
                 const isDimmed = state.highlightVlanId && !connVlans.includes(state.highlightVlanId);
+                const route = orthogonal ? computeOrthogonalRoute(p1, p2) : null;
+                const midX = route ? route.midX : (p1.x + p2.x) / 2;
+                const midY = route ? route.midY : (p1.y + p2.y) / 2;
 
                 // Create SVG group for line and interactive hitzone
                 const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -1513,30 +1559,40 @@
                 g.style.opacity = isDimmed ? '0.12' : '1';
                 g.style.transition = 'opacity 150ms';
 
+                const shapeTag = orthogonal ? 'path' : 'line';
+
                 // Wider invisible hitzone for clicking easily
-                const hitLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                hitLine.setAttribute('x1', p1.x);
-                hitLine.setAttribute('y1', p1.y);
-                hitLine.setAttribute('x2', p2.x);
-                hitLine.setAttribute('y2', p2.y);
+                const hitLine = document.createElementNS('http://www.w3.org/2000/svg', shapeTag);
+                if (orthogonal) {
+                    hitLine.setAttribute('d', route.d);
+                    hitLine.setAttribute('fill', 'none');
+                } else {
+                    hitLine.setAttribute('x1', p1.x);
+                    hitLine.setAttribute('y1', p1.y);
+                    hitLine.setAttribute('x2', p2.x);
+                    hitLine.setAttribute('y2', p2.y);
+                }
                 hitLine.setAttribute('stroke', 'transparent');
                 hitLine.setAttribute('stroke-width', '18');
 
                 // Visible cable
-                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                line.setAttribute('x1', p1.x);
-                line.setAttribute('y1', p1.y);
-                line.setAttribute('x2', p2.x);
-                line.setAttribute('y2', p2.y);
+                const line = document.createElementNS('http://www.w3.org/2000/svg', shapeTag);
+                if (orthogonal) {
+                    line.setAttribute('d', route.d);
+                    line.setAttribute('fill', 'none');
+                } else {
+                    line.setAttribute('x1', p1.x);
+                    line.setAttribute('y1', p1.y);
+                    line.setAttribute('x2', p2.x);
+                    line.setAttribute('y2', p2.y);
+                }
                 line.setAttribute('stroke', isSelected ? '#38bdf8' : cfg.stroke);
                 line.setAttribute('stroke-width', isSelected ? cfg.width + 2 : cfg.width);
                 if (cfg.dash) line.setAttribute('stroke-dasharray', cfg.dash);
                 if (cfg.animated) line.setAttribute('class', 'cable-traffic');
                 if (isSelected) line.setAttribute('filter', 'url(#cable-glow)');
 
-                // Cable badge in midpoint
-                const midX = (p1.x + p2.x) / 2;
-                const midY = (p1.y + p2.y) / 2;
+                // Cable badge at the route's midpoint
                 const badge = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                 badge.setAttribute('cx', midX);
                 badge.setAttribute('cy', midY);
@@ -1549,14 +1605,16 @@
 
                 // VLAN membership chips, stacked along the perpendicular of the cable near its midpoint
                 if (connVlans.length > 0) {
-                    const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x) + Math.PI / 2;
+                    const perpAngle = orthogonal
+                        ? Math.atan2(route.perpY, route.perpX)
+                        : Math.atan2(p2.y - p1.y, p2.x - p1.x) + Math.PI / 2;
                     connVlans.forEach((vlanId, i) => {
                         const vlan = state.vlans[vlanId];
                         if (!vlan) return;
                         const offset = 10 + i * 9;
                         const chip = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-                        chip.setAttribute('x', midX + Math.cos(angle) * offset - 4);
-                        chip.setAttribute('y', midY + Math.sin(angle) * offset - 4);
+                        chip.setAttribute('x', midX + Math.cos(perpAngle) * offset - 4);
+                        chip.setAttribute('y', midY + Math.sin(perpAngle) * offset - 4);
                         chip.setAttribute('width', '8');
                         chip.setAttribute('height', '8');
                         chip.setAttribute('rx', '2');
