@@ -2434,6 +2434,22 @@
             const startX = zone.x;
             const startY = zone.y;
 
+            // Moving a zone carries everything geometrically inside it along for the ride: nodes
+            // whose center falls in its rectangle (at any nesting depth — a node inside a nested
+            // zone is still inside this zone's rectangle too) and any strictly-smaller nested
+            // zones. Snapshot the membership and start positions once, so every child moves by
+            // the same delta instead of re-deriving containment (and drifting) on every tick.
+            const childNodes = Object.values(state.nodes)
+                .filter(n => isNodeContained(n, zone))
+                .map(n => ({ node: n, startX: n.x, startY: n.y }));
+            const childZones = Object.values(state.zones)
+                .filter(z => {
+                    if (z.id === zoneId || zone.width * zone.height <= z.width * z.height) return false;
+                    const cx = z.x + z.width / 2, cy = z.y + z.height / 2;
+                    return cx >= zone.x && cx <= zone.x + zone.width && cy >= zone.y && cy <= zone.y + zone.height;
+                })
+                .map(z => ({ zone: z, startX: z.x, startY: z.y }));
+
             const onMove = (moveEvent) => {
                 const dx = (moveEvent.clientX - startMouseX) / state.zoom;
                 const dy = (moveEvent.clientY - startMouseY) / state.zoom;
@@ -2444,6 +2460,25 @@
                     el.style.left = `${zone.x}px`;
                     el.style.top = `${zone.y}px`;
                 }
+                childNodes.forEach(({ node, startX: nx, startY: ny }) => {
+                    node.x = Math.max(0, nx + dx);
+                    node.y = Math.max(0, ny + dy);
+                    const nodeEl = document.getElementById(node.id);
+                    if (nodeEl) {
+                        nodeEl.style.left = `${node.x}px`;
+                        nodeEl.style.top = `${node.y}px`;
+                    }
+                });
+                childZones.forEach(({ zone: cz, startX: zx, startY: zy }) => {
+                    cz.x = Math.max(0, zx + dx);
+                    cz.y = Math.max(0, zy + dy);
+                    const czEl = document.getElementById(cz.id);
+                    if (czEl) {
+                        czEl.style.left = `${cz.x}px`;
+                        czEl.style.top = `${cz.y}px`;
+                    }
+                });
+                if (childNodes.length) renderConnections();
             };
             const onUp = () => {
                 window.removeEventListener('mousemove', onMove);
