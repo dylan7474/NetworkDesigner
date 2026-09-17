@@ -968,8 +968,10 @@
 
         /* Common environment roles that can be tagged onto compute hardware (rack/server/vserver/storage/backup/kvm).
            Being a hypervisor host is not a role here — it's the separate `isHypervisor` flag on a
-           Physical Server node (see updateNodeHypervisorFlag / getClusterHostNodes), since a host
-           keeps its own application role (or none) independent of whether it's virtualizing guests. */
+           Physical Server node (see updateNodeHypervisorFlag / getClusterHostNodes). The two are
+           mutually exclusive: a host's job is virtualization, not running an app role itself, so
+           setting isHypervisor clears the node's role and the inspector hides the Server Role
+           picker while it's a host — workload roles belong on its Virtual Server guests instead. */
         const ROLE_TAGS = {
             none: { label: 'No Role Assigned', abbr: '', color: '#64748b' },
             bastion: { label: 'Bastion / Jump Host', abbr: 'BSN', color: '#f97316' },
@@ -1799,7 +1801,14 @@
                                 </div>
                             </div>
 
-                            ${meta.category === 'compute' ? `
+                            ${node.archetypeKey === 'server' ? `
+                            <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded border border-slate-700">
+                                <input type="checkbox" id="node-hypervisor" ${node.isHypervisor ? 'checked' : ''} onchange="updateNodeHypervisorFlag('${node.id}', this.checked)" class="rounded text-brand-500">
+                                <label for="node-hypervisor" class="text-xs text-slate-300">Hypervisor Host <span class="text-slate-500">— place inside a Hypervisor Cluster zone to count as a host</span></label>
+                            </div>
+                            ` : ''}
+
+                            ${meta.category === 'compute' && !node.isHypervisor ? `
                             <div>
                                 <label class="text-[10px] text-slate-400 uppercase font-semibold">Server Role</label>
                                 <select onchange="updateNodeRole('${node.id}', this.value)" class="w-full bg-slate-800 text-xs text-white px-2 py-1.5 rounded border border-slate-700 mt-0.5">
@@ -1808,11 +1817,8 @@
                             </div>
                             ` : ''}
 
-                            ${node.archetypeKey === 'server' ? `
-                            <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded border border-slate-700">
-                                <input type="checkbox" id="node-hypervisor" ${node.isHypervisor ? 'checked' : ''} onchange="updateNodeHypervisorFlag('${node.id}', this.checked)" class="rounded text-brand-500">
-                                <label for="node-hypervisor" class="text-xs text-slate-300">Hypervisor Host <span class="text-slate-500">— place inside a Hypervisor Cluster zone to count as a host</span></label>
-                            </div>
+                            ${node.archetypeKey === 'server' && node.isHypervisor ? `
+                            <p class="text-[10px] text-slate-500">Server Role doesn't apply to a Hypervisor Host — tag its workload roles on the Virtual Server guests running on it instead.</p>
                             ` : ''}
 
                             ${meta.category === 'user' ? `
@@ -2054,6 +2060,9 @@
         function updateNodeHypervisorFlag(id, checked) {
             if (!state.nodes[id]) return;
             state.nodes[id].isHypervisor = checked;
+            // A Hypervisor Host's job is virtualization, not running an application role itself —
+            // that belongs on its Virtual Server guests — so clear any Server Role it was carrying.
+            if (checked) state.nodes[id].role = 'none';
             renderNodeElement(state.nodes[id]);
             selectNode(id);
             refreshZoneDerivedState();
