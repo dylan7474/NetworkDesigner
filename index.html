@@ -1526,12 +1526,18 @@
         // Where a cable should leave/enter a node's card: on the edge facing the other endpoint
         // (whichever side the route's primary axis points to), not the card's center — so the
         // visible cable stops at the card boundary instead of visually cutting across its own
-        // endpoint. `dx`/`dy` is the direction FROM this node TOWARD the other one.
-        function getNodeEdgePoint(center, dx, dy, horizontalFirst) {
+        // endpoint. `dx`/`dy` is the direction FROM this node TOWARD the other one. `laneOffset`
+        // (see computeLaneOffsets()) slides the point along that same edge, away from the card's
+        // midpoint, for a node with several cables leaving/entering the same side — otherwise every
+        // one of them starts from the exact same pixel and their routes overlap for however long
+        // they happen to travel the same way, which is the single biggest cause of two genuinely
+        // separate cables reading as one line.
+        function getNodeEdgePoint(center, dx, dy, horizontalFirst, laneOffset) {
+            const offset = laneOffset || 0;
             if (horizontalFirst) {
-                return { x: center.x + (dx >= 0 ? NODE_HALF_W : -NODE_HALF_W), y: center.y };
+                return { x: center.x + (dx >= 0 ? NODE_HALF_W : -NODE_HALF_W), y: center.y + offset };
             }
-            return { x: center.x, y: center.y + (dy >= 0 ? NODE_HALF_H : -NODE_HALF_H) };
+            return { x: center.x + offset, y: center.y + (dy >= 0 ? NODE_HALF_H : -NODE_HALF_H) };
         }
 
         // Builds a 3-segment right-angle ("PCB trace") route between two points at a given bend
@@ -1683,6 +1689,8 @@
         const GRID_TARGET_CELLS = 7000; // adaptively coarsen the grid for very long connections to stay near this cell budget
         const GRID_TURN_PENALTY = 3; // cost of a bend, in cell-steps — biases toward long straight runs
         const GRID_MAX_ITERATIONS = 20000; // safety cap so a pathological region can't hang a render
+        const SIBLING_AVOID_RADIUS = 10; // how close to an already-routed sibling's path counts as "reusing" it
+        const SIBLING_AVOID_PENALTY = 8; // soft per-cell cost for reusing it — discouraged, never forbidden
 
         function MinHeap() {
             this.items = [];
@@ -1730,15 +1738,15 @@
         // rather than giving up. Escalating this way keeps the common case fast while still
         // solving the rare, expensive case instead of silently falling back to the cruder heuristic
         // router for every large obstacle.
-        function findGridPath(p1, p2, obstacles, zones) {
+        function findGridPath(p1, p2, obstacles, zones, siblingSegments) {
             for (const margin of GRID_SEARCH_MARGINS) {
-                const result = findGridPathInRegion(p1, p2, obstacles, zones, margin);
+                const result = findGridPathInRegion(p1, p2, obstacles, zones, margin, siblingSegments);
                 if (result) return result;
             }
             return null;
         }
 
-        function findGridPathInRegion(p1, p2, obstacles, zones, margin) {
+        function findGridPathInRegion(p1, p2, obstacles, zones, margin, siblingSegments) {
             const minX = Math.min(p1.x, p2.x) - margin;
             const maxX = Math.max(p1.x, p2.x) + margin;
             const minY = Math.min(p1.y, p2.y) - margin;
@@ -1806,6 +1814,26 @@
                 markStrip(vBlockGrid, zgx1 - avoidCells, zgx1 + avoidCells, zgy0, zgy1); // right edge
             });
 
+            // A soft cost for cells near a path an already-routed *sibling* cable (one sharing an
+            // endpoint with this one — see collectSiblingSegments()) took, so later siblings prefer
+            // a different way through when a reasonably-priced one exists instead of defaulting to
+            // the exact same corridor every time — that's the main reason two unrelated-looking
+            // cables would otherwise run right on top of each other for their whole length. Soft on
+            // purpose: through a genuine bottleneck (the only way through), paying the penalty and
+            // reusing the path anyway is correct, not a bug.
+            const siblingPenaltyGrid = (siblingSegments && siblingSegments.length) ? new Uint8Array(gw * gh) : null;
+            if (siblingPenaltyGrid) {
+                siblingSegments.forEach(seg => {
+                    const gx0 = clampI(Math.floor((Math.min(seg.a.x, seg.b.x) - SIBLING_AVOID_RADIUS - minX) / cell), 0, gw - 1);
+                    const gx1 = clampI(Math.ceil((Math.max(seg.a.x, seg.b.x) + SIBLING_AVOID_RADIUS - minX) / cell), 0, gw - 1);
+                    const gy0 = clampI(Math.floor((Math.min(seg.a.y, seg.b.y) - SIBLING_AVOID_RADIUS - minY) / cell), 0, gh - 1);
+                    const gy1 = clampI(Math.ceil((Math.max(seg.a.y, seg.b.y) + SIBLING_AVOID_RADIUS - minY) / cell), 0, gh - 1);
+                    for (let gy = gy0; gy <= gy1; gy++) {
+                        for (let gx = gx0; gx <= gx1; gx++) siblingPenaltyGrid[cellIndex(gx, gy)] = 1;
+                    }
+                });
+            }
+
             const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
             // Numeric state key (avoids per-state string allocation): 5 direction slots (-1..3
             // offset to 0..4) per cell.
@@ -1832,7 +1860,8 @@
                     if (movingHorizontally && hBlockGrid[cellIndex(nx, ny)]) continue;
                     if (!movingHorizontally && vBlockGrid[cellIndex(nx, ny)]) continue;
                     const turnCost = (cur.d !== -1 && cur.d !== di) ? GRID_TURN_PENALTY : 0;
-                    const tentativeG = cur.g + 1 + turnCost;
+                    const siblingCost = (siblingPenaltyGrid && siblingPenaltyGrid[cellIndex(nx, ny)]) ? SIBLING_AVOID_PENALTY : 0;
+                    const tentativeG = cur.g + 1 + turnCost + siblingCost;
                     const nKey = key(nx, ny, di);
                     const existing = records.get(nKey);
                     if (!existing || tentativeG < existing.g) {
@@ -1913,11 +1942,189 @@
 
         // Full route for a connection: real A* pathfinding when possible, falling back to the fast
         // heuristic router (which always returns something) if the grid search fails outright —
-        // e.g. both endpoints boxed in by obstacles within the search margin.
-        function findBestRoute(p1, p2, horizontalFirst, obstacles, zones) {
-            const gridPoints = findGridPath(p1, p2, obstacles, zones);
+        // e.g. both endpoints boxed in by obstacles within the search margin. `points` stays the
+        // plain sharp-cornered polyline — the logical route used for collision/badge/hop-crossing
+        // math; rendering (rounded corners, crossing hops) is a separate cosmetic pass in
+        // buildDecoratedPathD() below, kept off this shape so that math stays simple.
+        function findBestRoute(p1, p2, horizontalFirst, obstacles, zones, siblingSegments) {
+            const gridPoints = findGridPath(p1, p2, obstacles, zones, siblingSegments);
             const points = gridPoints ? simplifyOrthogonalPath(gridPoints) : findClearRoute(p1, p2, horizontalFirst, obstacles, zones).points;
             return { points, d: pointsToPathD(points), ...pathMidpoint(points) };
+        }
+
+        // ---- PCB-style rendering: rounded corners + "hop" loops over unrelated crossings ----
+
+        const ROUTE_CORNER_RADIUS = 14; // how much each bend is rounded off
+        const HOP_HALF_WIDTH = 9; // distance from a crossing's center to where its loop starts/ends
+        const HOP_BULGE = 12; // how far the loop arcs away from the straight line
+
+        // Splits a sharp-cornered polyline into its straight "runs" (the parts that stay dead
+        // straight) and the corner points between them, each run already trimmed back by
+        // `radius` (or less, for a short segment) so a curve can be inserted at full radius
+        // without the two curves at either end of a short run overlapping each other.
+        function buildRouteRuns(points, radius) {
+            if (points.length < 3) return { runs: [{ start: points[0], end: points[points.length - 1] }], corners: [] };
+            const runs = [];
+            const corners = [];
+            let runStart = points[0];
+            for (let i = 1; i < points.length - 1; i++) {
+                const prev = points[i - 1], cur = points[i], next = points[i + 1];
+                const distPrev = Math.hypot(cur.x - prev.x, cur.y - prev.y);
+                const distNext = Math.hypot(next.x - cur.x, next.y - cur.y);
+                const r = Math.min(radius, distPrev / 2, distNext / 2);
+                const inPt = { x: cur.x - (cur.x - prev.x) / distPrev * r, y: cur.y - (cur.y - prev.y) / distPrev * r };
+                const outPt = { x: cur.x + (next.x - cur.x) / distNext * r, y: cur.y + (next.y - cur.y) / distNext * r };
+                runs.push({ start: runStart, end: inPt });
+                corners.push({ x: cur.x, y: cur.y });
+                runStart = outPt;
+            }
+            runs.push({ start: runStart, end: points[points.length - 1] });
+            return { runs, corners };
+        }
+
+        // One straight run's path fragment (everything after its own leading "L"), with a small
+        // quadratic-curve loop spliced in at each hop point that falls on it — the classic
+        // schematic "this wire jumps over, it isn't connected here" symbol. Always bulges the same
+        // fixed direction (up for a horizontal run, right for a vertical one) rather than one
+        // relative to travel direction, so a cable's own hops all read consistently regardless of
+        // which way each individual run happens to travel.
+        function runPathFragment(run, hopsOnRun) {
+            const isVertical = run.start.x === run.end.x;
+            if (hopsOnRun.length === 0) return ` L ${run.end.x} ${run.end.y}`;
+            const along = p => isVertical ? p.y : p.x;
+            const dir = Math.sign(along(run.end) - along(run.start)) || 1;
+            const sorted = hopsOnRun.slice().sort((a, b) => (along(a) - along(b)) * dir);
+            let d = '';
+            for (const hop of sorted) {
+                const distFromStart = Math.abs(along(hop) - along(run.start));
+                const distToEnd = Math.abs(along(run.end) - along(hop));
+                const r = Math.min(HOP_HALF_WIDTH, distFromStart - 3, distToEnd - 3);
+                if (r < 3) continue; // too close to a run's own end (e.g. near a corner) to draw cleanly — leave it straight through
+                const before = isVertical ? { x: hop.x, y: hop.y - dir * r } : { x: hop.x - dir * r, y: hop.y };
+                const after = isVertical ? { x: hop.x, y: hop.y + dir * r } : { x: hop.x + dir * r, y: hop.y };
+                const ctrl = isVertical ? { x: hop.x + HOP_BULGE, y: hop.y } : { x: hop.x, y: hop.y - HOP_BULGE };
+                d += ` L ${before.x} ${before.y} Q ${ctrl.x} ${ctrl.y} ${after.x} ${after.y}`;
+            }
+            d += ` L ${run.end.x} ${run.end.y}`;
+            return d;
+        }
+
+        // The full rendered path for a cable: rounded corners throughout, plus a loop at every
+        // point in `hopPoints` (each already known to fall on one of this cable's runs).
+        function buildDecoratedPathD(points, hopPoints) {
+            const { runs, corners } = buildRouteRuns(points, ROUTE_CORNER_RADIUS);
+            let d = `M ${runs[0].start.x} ${runs[0].start.y}`;
+            runs.forEach((run, i) => {
+                const isVertical = run.start.x === run.end.x;
+                const onThisRun = hopPoints.filter(h => isVertical
+                    ? h.x === run.start.x && Math.min(run.start.y, run.end.y) <= h.y && h.y <= Math.max(run.start.y, run.end.y)
+                    : h.y === run.start.y && Math.min(run.start.x, run.end.x) <= h.x && h.x <= Math.max(run.start.x, run.end.x));
+                d += runPathFragment(run, onThisRun);
+                if (i < corners.length) d += ` Q ${corners[i].x} ${corners[i].y} ${runs[i + 1].start.x} ${runs[i + 1].start.y}`;
+            });
+            return d;
+        }
+
+        const LANE_SPACING = 18; // how far apart sibling cables fan out along a shared edge
+
+        // Groups every connection endpoint by (node, exit side) — the side being whichever the
+        // same horizontalFirst/dx/dy logic renderConnections() uses for edge-anchoring, so this
+        // always agrees with where a cable will actually leave from. A group with 2+ members means
+        // that many cables leave/enter that exact side of that exact node; each gets its own lane
+        // offset (members ordered by direction to their *other* endpoint, so the fan-out matches
+        // the order they'll naturally spread apart in, rather than an arbitrary one that would
+        // cross right at the card edge) via getNodeEdgePoint()'s laneOffset — centered on 0, so a
+        // lone connection at a side is untouched. Returns a Map keyed `${connIndex}:${end}` (end is
+        // 'from' or 'to') to an offset in px.
+        function computeLaneOffsets(connections, nodesById) {
+            const groups = new Map();
+            connections.forEach((conn, idx) => {
+                const n1 = nodesById[conn.from], n2 = nodesById[conn.to];
+                if (!n1 || !n2) return;
+                const c1 = getNodeCenter(n1), c2 = getNodeCenter(n2);
+                const dx = c2.x - c1.x, dy = c2.y - c1.y;
+                const horizontalFirst = Math.abs(dy) < NODE_COLLISION_H;
+                const side1 = horizontalFirst ? (dx >= 0 ? 'R' : 'L') : (dy >= 0 ? 'B' : 'T');
+                const side2 = horizontalFirst ? (dx >= 0 ? 'L' : 'R') : (dy >= 0 ? 'T' : 'B');
+                const key1 = `${n1.id}:${side1}`, key2 = `${n2.id}:${side2}`;
+                if (!groups.has(key1)) groups.set(key1, []);
+                groups.get(key1).push({ connIndex: idx, end: 'from', angle: Math.atan2(dy, dx) });
+                if (!groups.has(key2)) groups.set(key2, []);
+                groups.get(key2).push({ connIndex: idx, end: 'to', angle: Math.atan2(-dy, -dx) });
+            });
+            const offsets = new Map();
+            groups.forEach(members => {
+                if (members.length < 2) return; // default (no entry) reads as 0 offset
+                members.sort((a, b) => a.angle - b.angle);
+                const n = members.length;
+                members.forEach((m, i) => offsets.set(`${m.connIndex}:${m.end}`, (i - (n - 1) / 2) * LANE_SPACING));
+            });
+            return offsets;
+        }
+
+        // True perpendicular intersection of two axis-aligned segments (one horizontal, one
+        // vertical) — parallel/collinear segments never "cross" in the sense this is used for, so
+        // they're deliberately not handled here.
+        function perpendicularCrossing(a1, a2, b1, b2) {
+            const aVertical = a1.x === a2.x, bVertical = b1.x === b2.x;
+            if (aVertical === bVertical) return null;
+            const v = aVertical ? { x: a1.x, y0: Math.min(a1.y, a2.y), y1: Math.max(a1.y, a2.y) } : { x: b1.x, y0: Math.min(b1.y, b2.y), y1: Math.max(b1.y, b2.y) };
+            const h = aVertical ? { y: b1.y, x0: Math.min(b1.x, b2.x), x1: Math.max(b1.x, b2.x) } : { y: a1.y, x0: Math.min(a1.x, a2.x), x1: Math.max(a1.x, a2.x) };
+            if (v.x < h.x0 || v.x > h.x1 || h.y < v.y0 || h.y > v.y1) return null;
+            return { x: v.x, y: h.y };
+        }
+
+        // Finds every place two *different* cables' routes cross, and assigns each crossing to one
+        // of the pair (the one later in `routed`) to draw as a hop loop — the other stays plain,
+        // exactly like the schematic convention this mirrors. Skips crossings that land on (or
+        // right next to) either cable's own endpoint, since that's a real junction — a device two
+        // cables both happen to attach to — not an incidental crossing in open space.
+        function findCableCrossingHops(routed) {
+            const hopsByIndex = new Map();
+            const nearAnyEndpoint = (pt, entry) => [entry.p1, entry.p2].some(ep => Math.abs(ep.x - pt.x) < 2 && Math.abs(ep.y - pt.y) < 2);
+            // Several sibling cables (e.g. everything fanning out from one switch) often funnel
+            // through the same detour and end up crossing at, or extremely near, the same physical
+            // point multiple times over — once per pair that happens to meet there. Without
+            // deduplicating, that spot would get one overlapping loop per pair instead of one loop
+            // total, which reads as far messier than the plain crossing it's meant to clarify.
+            const addHop = (j, pt) => {
+                if (!hopsByIndex.has(j)) hopsByIndex.set(j, []);
+                const list = hopsByIndex.get(j);
+                if (list.some(h => Math.abs(h.x - pt.x) < 3 && Math.abs(h.y - pt.y) < 3)) return;
+                list.push(pt);
+            };
+            for (let i = 0; i < routed.length; i++) {
+                for (let j = i + 1; j < routed.length; j++) {
+                    const a = routed[i], b = routed[j];
+                    for (let si = 0; si < a.points.length - 1; si++) {
+                        for (let sj = 0; sj < b.points.length - 1; sj++) {
+                            const pt = perpendicularCrossing(a.points[si], a.points[si + 1], b.points[sj], b.points[sj + 1]);
+                            if (!pt) continue;
+                            if (nearAnyEndpoint(pt, a) || nearAnyEndpoint(pt, b)) continue;
+                            addHop(j, pt);
+                        }
+                    }
+                }
+            }
+            return hopsByIndex;
+        }
+
+        // Every segment of every already-routed entry that shares an endpoint node with (n1, n2)
+        // — fed into findGridPath() as a soft cost so a later sibling prefers a different way
+        // through when one exists, instead of defaulting to the exact same corridor as an earlier
+        // one every time. Only looks at *earlier* entries (routed so far) since later ones haven't
+        // been computed yet — order in `state.connections` is what determines who yields to whom,
+        // which is arbitrary but stable.
+        function collectSiblingSegments(n1, n2, routedSoFar) {
+            const segments = [];
+            routedSoFar.forEach(entry => {
+                if (!entry.route) return;
+                const shares = entry.conn.from === n1.id || entry.conn.from === n2.id || entry.conn.to === n1.id || entry.conn.to === n2.id;
+                if (!shares) return;
+                const pts = entry.route.points;
+                for (let i = 0; i < pts.length - 1; i++) segments.push({ a: pts[i], b: pts[i + 1] });
+            });
+            return segments;
         }
 
         // `fast`: use the cheap heuristic router instead of full A* — for live feedback while
@@ -1932,7 +2139,14 @@
             const allZones = orthogonal ? Object.values(state.zones) : null;
             const clusterZones = orthogonal ? allZones.filter(z => z.zoneType === 'cluster') : null;
 
-            state.connections.forEach(conn => {
+            // Phase 1: route every connection first (don't render yet) — crossing-hop detection
+            // needs every cable's full route up front to find where two *different* cables' paths
+            // actually cross, which isn't knowable one connection at a time. Lane offsets (which
+            // side-slot each cable leaves/enters from) are computed up front for the same reason:
+            // they depend on how many *other* connections share that node+side.
+            const laneOffsets = orthogonal ? computeLaneOffsets(state.connections, state.nodes) : null;
+            const routed = [];
+            state.connections.forEach((conn, connIndex) => {
                 const n1 = state.nodes[conn.from];
                 const n2 = state.nodes[conn.to];
                 if (!n1 || !n2) return;
@@ -1947,9 +2161,10 @@
                 // also happens to run far sideways out through the top/bottom instead.
                 const horizontalFirst = Math.abs(dy) < NODE_COLLISION_H;
                 // Edge-anchor both routing modes so the cable stops at the card boundary instead
-                // of drawing across its own endpoint's icon/label.
-                const p1 = getNodeEdgePoint(c1, dx, dy, horizontalFirst);
-                const p2 = getNodeEdgePoint(c2, -dx, -dy, horizontalFirst);
+                // of drawing across its own endpoint's icon/label, fanned out (laneOffsets) if this
+                // node has other cables sharing the same side.
+                const p1 = getNodeEdgePoint(c1, dx, dy, horizontalFirst, laneOffsets && laneOffsets.get(`${connIndex}:from`));
+                const p2 = getNodeEdgePoint(c2, -dx, -dy, horizontalFirst, laneOffsets && laneOffsets.get(`${connIndex}:to`));
                 const cfg = CABLE_CONFIGS[conn.type] || CABLE_CONFIGS.fiber;
                 const isSelected = state.selectedConnectionId === conn.id;
                 const connVlans = conn.vlanIds || [];
@@ -1958,10 +2173,24 @@
                 const route = orthogonal
                     ? (fast
                         ? findClearRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones)
-                        : findBestRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones))
+                        : findBestRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones, collectSiblingSegments(n1, n2, routed)))
                     : null;
+
+                routed.push({ conn, p1, p2, cfg, isSelected, connVlans, isDimmed, route, points: route ? route.points : [p1, p2] });
+            });
+
+            // Phase 2: find every crossing between two different cables and assign each one a hop
+            // loop — only for the settled high-quality pass, both because it's an extra cost not
+            // worth paying on every drag tick and because fast-mode routes are throwaway previews
+            // anyway. Straight-line mode has no bends to hop over cleanly, so it's skipped there too.
+            const hopsByIndex = (!fast && orthogonal) ? findCableCrossingHops(routed) : new Map();
+
+            // Phase 3: render.
+            routed.forEach((entry, index) => {
+                const { conn, p1, p2, cfg, isSelected, connVlans, isDimmed, route } = entry;
                 const midX = route ? route.midX : (p1.x + p2.x) / 2;
                 const midY = route ? route.midY : (p1.y + p2.y) / 2;
+                const decoratedD = route ? buildDecoratedPathD(route.points, hopsByIndex.get(index) || []) : null;
 
                 // Create SVG group for line and interactive hitzone
                 const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -1974,7 +2203,7 @@
                 // Wider invisible hitzone for clicking easily
                 const hitLine = document.createElementNS('http://www.w3.org/2000/svg', shapeTag);
                 if (orthogonal) {
-                    hitLine.setAttribute('d', route.d);
+                    hitLine.setAttribute('d', decoratedD);
                     hitLine.setAttribute('fill', 'none');
                 } else {
                     hitLine.setAttribute('x1', p1.x);
@@ -1987,8 +2216,9 @@
 
                 // Visible cable
                 const line = document.createElementNS('http://www.w3.org/2000/svg', shapeTag);
+                line.setAttribute('stroke-linecap', 'round');
                 if (orthogonal) {
-                    line.setAttribute('d', route.d);
+                    line.setAttribute('d', decoratedD);
                     line.setAttribute('fill', 'none');
                 } else {
                     line.setAttribute('x1', p1.x);
@@ -2002,15 +2232,26 @@
                 if (cfg.animated) line.setAttribute('class', 'cable-traffic');
                 if (isSelected) line.setAttribute('filter', 'url(#cable-glow)');
 
+                g.appendChild(hitLine);
+                g.appendChild(line);
+
+                // Connection-point dots at both ends — makes it unambiguous where the cable
+                // actually terminates versus just passing near a node or another cable.
+                [p1, p2].forEach(pt => {
+                    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    dot.setAttribute('cx', pt.x);
+                    dot.setAttribute('cy', pt.y);
+                    dot.setAttribute('r', '3');
+                    dot.setAttribute('fill', isSelected ? '#38bdf8' : cfg.stroke);
+                    g.appendChild(dot);
+                });
+
                 // Cable badge at the route's midpoint
                 const badge = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                 badge.setAttribute('cx', midX);
                 badge.setAttribute('cy', midY);
                 badge.setAttribute('r', '4');
                 badge.setAttribute('fill', isSelected ? '#38bdf8' : cfg.stroke);
-
-                g.appendChild(hitLine);
-                g.appendChild(line);
                 g.appendChild(badge);
 
                 // VLAN membership chips, stacked along the perpendicular of the cable near its midpoint
