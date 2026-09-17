@@ -282,6 +282,16 @@
                             </div>
                         </div>
 
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'vswitch')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-violet-950/60 border border-violet-500/30 flex items-center justify-center text-violet-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2" stroke-dasharray="3,2"></rect><circle cx="6" cy="12" r="1.5"></circle><circle cx="10" cy="12" r="1.5"></circle><circle cx="14" cy="12" r="1.5"></circle><circle cx="18" cy="12" r="1.5"></circle></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Virtual Switch (vSwitch)</div>
+                                <div class="text-[10px] text-slate-400 truncate">Hypervisor virtual networking</div>
+                            </div>
+                        </div>
+
                         <div draggable="true" ondragstart="handlePaletteDragStart(event, 'router')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
                             <div class="w-8 h-8 rounded bg-blue-950/60 border border-blue-500/30 flex items-center justify-center text-blue-400 group-hover:scale-105 transition-transform">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v18M3 12h18"></path></svg>
@@ -703,6 +713,15 @@
                 defaultPorts: 64,
                 specs: { speed: '100 Gbps QSFP28', vlan: '10-200', mtu: '9216' }
             },
+            vswitch: {
+                name: 'Virtual Switch (vSwitch)',
+                category: 'network',
+                icon: '<svg class="w-5 h-5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2" stroke-dasharray="3,2"></rect><circle cx="6" cy="12" r="1.5"></circle><circle cx="10" cy="12" r="1.5"></circle><circle cx="14" cy="12" r="1.5"></circle><circle cx="18" cy="12" r="1.5"></circle></svg>',
+                color: 'border-violet-500/50 border-dashed bg-slate-900',
+                powerKW: 0,
+                defaultPorts: 8,
+                specs: { type: 'vSwitch / Distributed Switch', uplinks: '2x pNIC Uplink', vlan: 'Trunk (802.1Q)' }
+            },
             firewall: {
                 name: 'NextGen Firewall',
                 category: 'security',
@@ -1042,6 +1061,7 @@
             counter: 1,
             zoneCounter: 1,
             cableCounter: 1,
+            ruleCounter: 1,
             selectedNodeId: null,
             selectedConnectionId: null,
             selectedZoneId: null,
@@ -1089,7 +1109,8 @@
                     vlans: state.vlans,
                     counter: state.counter,
                     zoneCounter: state.zoneCounter,
-                    cableCounter: state.cableCounter
+                    cableCounter: state.cableCounter,
+                    ruleCounter: state.ruleCounter
                 }
             };
         }
@@ -1219,11 +1240,15 @@
                 notes: 'Primary production unit.',
                 role: 'none',
                 userType: archetypeKey === 'user' ? 'dc_user' : '',
-                isHypervisor: false
+                isHypervisor: false,
+                vlanIds: [],
+                accessRules: []
             };
             if (nodeData.role === undefined) nodeData.role = 'none';
             if (nodeData.userType === undefined) nodeData.userType = archetypeKey === 'user' ? 'dc_user' : '';
             if (nodeData.isHypervisor === undefined) nodeData.isHypervisor = false;
+            if (!nodeData.vlanIds) nodeData.vlanIds = [];
+            if (!nodeData.accessRules) nodeData.accessRules = [];
             // Migrate pre-existing saves/autosaves from when "Hypervisor Host" was a Server Role
             // value instead of its own flag.
             if (nodeData.role === 'hypervisor') {
@@ -1595,6 +1620,10 @@
             state.connections.forEach(c => {
                 if (c.vlanIds) c.vlanIds = c.vlanIds.filter(v => v !== id);
             });
+            // Remove this VLAN from any device's trunk membership
+            Object.values(state.nodes).forEach(n => {
+                if (n.vlanIds) n.vlanIds = n.vlanIds.filter(v => v !== id);
+            });
             if (state.highlightVlanId === id) state.highlightVlanId = null;
             renderVlanHighlightSelect();
             renderVlanManagerList();
@@ -1651,6 +1680,67 @@
             if (!checked) zone.accessRoles = zone.accessRoles.filter(r => r !== roleKey);
             renderZoneElement(zone);
             refreshZoneDerivedState();
+            scheduleAutosave();
+        }
+
+        // ---- Device VLAN trunk membership & Access Rules (Firewall Rules / ACL) ----
+        // Both live directly on the node — unlike the Firewall Rule Matrix (a read-only view
+        // derived from cabling + zone boundaries), these are manually authored security policy
+        // that can't be inferred from the topology, so a typed list is the right model here.
+
+        function toggleNodeVlan(nodeId, vlanId, checked) {
+            const node = state.nodes[nodeId];
+            if (!node) return;
+            if (!node.vlanIds) node.vlanIds = [];
+            if (checked && !node.vlanIds.includes(vlanId)) node.vlanIds.push(vlanId);
+            if (!checked) node.vlanIds = node.vlanIds.filter(v => v !== vlanId);
+            scheduleAutosave();
+        }
+
+        function addAccessRule(nodeId) {
+            const node = state.nodes[nodeId];
+            if (!node) return;
+            if (!node.accessRules) node.accessRules = [];
+            node.accessRules.push({
+                id: 'rule_' + (state.ruleCounter++),
+                action: 'allow',
+                protocol: 'any',
+                source: 'any',
+                destination: 'any',
+                port: '',
+                note: ''
+            });
+            updateInspector();
+            scheduleAutosave();
+        }
+
+        function updateAccessRule(nodeId, ruleId, field, value) {
+            const node = state.nodes[nodeId];
+            if (!node || !node.accessRules) return;
+            const rule = node.accessRules.find(r => r.id === ruleId);
+            if (!rule) return;
+            rule[field] = value;
+            // Re-render so an action change (Allow/Deny) immediately restyles the rule row.
+            updateInspector();
+            scheduleAutosave();
+        }
+
+        function moveAccessRule(nodeId, ruleId, direction) {
+            const node = state.nodes[nodeId];
+            if (!node || !node.accessRules) return;
+            const i = node.accessRules.findIndex(r => r.id === ruleId);
+            const j = i + direction;
+            if (i === -1 || j < 0 || j >= node.accessRules.length) return;
+            [node.accessRules[i], node.accessRules[j]] = [node.accessRules[j], node.accessRules[i]];
+            updateInspector();
+            scheduleAutosave();
+        }
+
+        function deleteAccessRule(nodeId, ruleId) {
+            const node = state.nodes[nodeId];
+            if (!node || !node.accessRules) return;
+            node.accessRules = node.accessRules.filter(r => r.id !== ruleId);
+            updateInspector();
             scheduleAutosave();
         }
 
@@ -1833,6 +1923,66 @@
                                 ⚠ This user's type isn't in the Authorized Access list of the zone they're placed in.
                             </div>
                             ` : ''}
+                            ` : ''}
+
+                            ${(meta.category === 'network' || meta.category === 'security') ? `
+                            <div class="pt-2 border-t border-slate-800">
+                                <span class="text-[10px] text-slate-400 uppercase font-semibold block mb-1.5">VLAN Trunk Membership</span>
+                                <div class="space-y-1 max-h-28 overflow-y-auto">
+                                    ${Object.keys(state.vlans).length === 0 ? '<p class="text-[11px] text-slate-500 italic">No VLANs defined — use Manage VLANs in the toolbar.</p>' : ''}
+                                    ${Object.values(state.vlans).sort((a, b) => Number(a.id) - Number(b.id)).map(v => `
+                                        <label class="flex items-center gap-2 text-[11px] text-slate-300 bg-slate-800/60 px-2 py-1 rounded border border-slate-700/60 cursor-pointer">
+                                            <input type="checkbox" ${(node.vlanIds || []).includes(v.id) ? 'checked' : ''} onchange="toggleNodeVlan('${node.id}', '${escapeHtml(v.id)}', this.checked)" class="rounded text-brand-500">
+                                            <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:${v.color}"></span>
+                                            <span class="truncate">VLAN ${escapeHtml(v.id)}${v.name ? ' — ' + escapeHtml(v.name) : ''}</span>
+                                        </label>
+                                    `).join('')}
+                                </div>
+                            </div>
+
+                            <div class="pt-2 border-t border-slate-800">
+                                <div class="flex items-center justify-between mb-1.5">
+                                    <span class="text-[10px] text-slate-400 uppercase font-semibold">${meta.category === 'security' ? 'Firewall Rules' : 'Access Control List (ACL)'} (${(node.accessRules || []).length})</span>
+                                    <button onclick="addAccessRule('${node.id}')" class="text-[10px] px-2 py-0.5 rounded bg-brand-600 hover:bg-brand-700 text-white font-medium transition">+ Add Rule</button>
+                                </div>
+                                <div class="space-y-2 max-h-72 overflow-y-auto">
+                                    ${(node.accessRules || []).length === 0 ? '<p class="text-[11px] text-slate-500 italic">No rules defined yet.</p>' : ''}
+                                    ${(node.accessRules || []).map((rule, i) => `
+                                        <div class="p-2 rounded border space-y-1.5 ${rule.action === 'deny' ? 'bg-red-950/20 border-red-800/60' : 'bg-emerald-950/10 border-emerald-800/40'}">
+                                            <div class="flex items-center gap-1.5">
+                                                <span class="text-[9px] font-mono text-slate-500 w-4 shrink-0">${i + 1}</span>
+                                                <select onchange="updateAccessRule('${node.id}', '${rule.id}', 'action', this.value)" class="bg-slate-900 text-[11px] font-semibold px-1.5 py-1 rounded border border-slate-700 ${rule.action === 'deny' ? 'text-red-400' : 'text-emerald-400'}">
+                                                    <option value="allow" ${rule.action === 'allow' ? 'selected' : ''}>ALLOW</option>
+                                                    <option value="deny" ${rule.action === 'deny' ? 'selected' : ''}>DENY</option>
+                                                </select>
+                                                <select onchange="updateAccessRule('${node.id}', '${rule.id}', 'protocol', this.value)" class="bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700">
+                                                    <option value="any" ${rule.protocol === 'any' ? 'selected' : ''}>Any</option>
+                                                    <option value="tcp" ${rule.protocol === 'tcp' ? 'selected' : ''}>TCP</option>
+                                                    <option value="udp" ${rule.protocol === 'udp' ? 'selected' : ''}>UDP</option>
+                                                    <option value="icmp" ${rule.protocol === 'icmp' ? 'selected' : ''}>ICMP</option>
+                                                </select>
+                                                <input type="text" placeholder="Port" value="${escapeHtml(rule.port || '')}" onchange="updateAccessRule('${node.id}', '${rule.id}', 'port', this.value)" class="w-14 min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700 font-mono">
+                                                <div class="flex-1"></div>
+                                                <button onclick="moveAccessRule('${node.id}', '${rule.id}', -1)" class="text-slate-400 hover:text-white p-0.5 rounded hover:bg-slate-700 transition shrink-0" title="Move up">
+                                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path></svg>
+                                                </button>
+                                                <button onclick="moveAccessRule('${node.id}', '${rule.id}', 1)" class="text-slate-400 hover:text-white p-0.5 rounded hover:bg-slate-700 transition shrink-0" title="Move down">
+                                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                                </button>
+                                                <button onclick="deleteAccessRule('${node.id}', '${rule.id}')" class="text-slate-400 hover:text-red-400 p-0.5 rounded hover:bg-slate-700 transition shrink-0" title="Remove rule">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                                                </button>
+                                            </div>
+                                            <div class="grid grid-cols-2 gap-1.5">
+                                                <input type="text" placeholder="Source" value="${escapeHtml(rule.source || '')}" onchange="updateAccessRule('${node.id}', '${rule.id}', 'source', this.value)" class="w-full min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700 font-mono">
+                                                <input type="text" placeholder="Destination" value="${escapeHtml(rule.destination || '')}" onchange="updateAccessRule('${node.id}', '${rule.id}', 'destination', this.value)" class="w-full min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700 font-mono">
+                                            </div>
+                                            <input type="text" placeholder="Note (optional)" value="${escapeHtml(rule.note || '')}" onchange="updateAccessRule('${node.id}', '${rule.id}', 'note', this.value)" class="w-full min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700">
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                ${(node.accessRules || []).length > 0 ? '<p class="text-[10px] text-slate-500 mt-1.5">Rules are evaluated top to bottom — first match wins, like a real ACL/firewall policy.</p>' : ''}
+                            </div>
                             ` : ''}
 
                             <div>
@@ -2598,6 +2748,7 @@
             state.counter = incomingState.counter || Object.keys(incomingState.nodes).length + 1;
             state.zoneCounter = incomingState.zoneCounter || 1;
             state.cableCounter = incomingState.cableCounter || incomingState.connections.length + 1;
+            state.ruleCounter = incomingState.ruleCounter || 1;
             state.vlans = incomingState.vlans || {};
             state.connections = (incomingState.connections || []).map(c => ({ vlanIds: [], ...c }));
 
