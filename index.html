@@ -162,6 +162,11 @@
                 <input type="file" id="import-file" accept=".json" class="hidden" onchange="importTopologyJSON(event)">
             </label>
 
+            <button onclick="confirmLoadRecommendedDesign()" title="Replace the canvas with a curated reference architecture" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium flex items-center gap-1.5 transition">
+                <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                <span>Recommended Design</span>
+            </button>
+
             <button onclick="confirmClearWorkspace()" class="px-2.5 py-1.5 bg-red-950/40 hover:bg-red-900/60 border border-red-800/50 rounded-lg text-xs text-red-300 font-medium flex items-center gap-1 transition" title="Clear Design">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
             </button>
@@ -1002,6 +1007,11 @@
             monitoring: { label: 'Monitoring / Syslog', abbr: 'MON', color: '#22c55e' },
             database: { label: 'Database Server', abbr: 'DB', color: '#eab308' },
             webapp: { label: 'Web / App Server', abbr: 'APP', color: '#6366f1' },
+            mail: { label: 'Email / Mail Server (SMTP/Exchange)', abbr: 'MAIL', color: '#0284c7' },
+            vpn: { label: 'VPN Gateway / Remote Access', abbr: 'VPN', color: '#7c3aed' },
+            sso: { label: 'Identity Provider / SSO (SAML/OIDC)', abbr: 'SSO', color: '#2563eb' },
+            ftp: { label: 'FTP / SFTP File Transfer', abbr: 'FTP', color: '#65a30d' },
+            mq: { label: 'Message Queue / Middleware', abbr: 'MQ', color: '#c026d3' },
             proxy: { label: 'Proxy / Reverse Proxy', abbr: 'PXY', color: '#f43f5e' },
             radius: { label: 'RADIUS / AAA', abbr: 'AAA', color: '#84cc16' },
             backup_target: { label: 'Backup Target', abbr: 'BKP', color: '#78716c' },
@@ -2281,26 +2291,45 @@
             showToast('Cable link removed.', 'info');
         }
 
+        // Wipes the live canvas and all state back to empty — shared by "Clear Design" and
+        // "Load Recommended Design", both of which need a blank slate before building anything.
+        function resetCanvasState() {
+            nodesContainer.innerHTML = '';
+            cableGroup.innerHTML = '';
+            zonesContainer.innerHTML = '';
+            state.nodes = {};
+            state.connections = [];
+            state.zones = {};
+            state.vlans = {};
+            state.highlightVlanId = null;
+            state.counter = 1;
+            state.zoneCounter = 1;
+            state.cableCounter = 1;
+            state.ruleCounter = 1;
+            clearSelection();
+            updateSummaryStats();
+            renderVlanHighlightSelect();
+        }
+
         function confirmClearWorkspace() {
             showConfirmModal(
                 'Reset Entire Canvas',
                 'This will permanently delete all placed nodes, switches, zones, and cabling links on this canvas. Proceed?',
                 () => {
-                    nodesContainer.innerHTML = '';
-                    cableGroup.innerHTML = '';
-                    zonesContainer.innerHTML = '';
-                    state.nodes = {};
-                    state.connections = [];
-                    state.zones = {};
-                    state.vlans = {};
-                    state.highlightVlanId = null;
-                    state.counter = 1;
-                    state.zoneCounter = 1;
-                    clearSelection();
-                    updateSummaryStats();
-                    renderVlanHighlightSelect();
+                    resetCanvasState();
                     scheduleAutosave();
                     showToast('Workspace reset successfully.', 'info');
+                }
+            );
+        }
+
+        function confirmLoadRecommendedDesign() {
+            showConfirmModal(
+                'Load Recommended Design',
+                'This replaces everything on the canvas with a reference multi-DC architecture (Purdue zones, a hypervisor cluster, firewalls, and user personas) — a good starting point to adapt. Your current design will be permanently lost unless you\'ve saved it. Proceed?',
+                () => {
+                    resetCanvasState();
+                    seedDemoLayout();
                 }
             );
         }
