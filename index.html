@@ -230,8 +230,18 @@
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6" rx="1"></rect><circle cx="7" cy="12" r="1"></circle><line x1="11" y1="12" x2="18" y2="12"></line></svg>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <div class="text-xs font-medium text-slate-200">Rack Server (1U)</div>
-                                <div class="text-[10px] text-slate-400 truncate">Individual compute node</div>
+                                <div class="text-xs font-medium text-slate-200">Physical Server (1U)</div>
+                                <div class="text-[10px] text-slate-400 truncate">Bare-metal node — can be a hypervisor host</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'vserver')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-violet-950/60 border border-violet-500/30 flex items-center justify-center text-violet-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l9 4.5-9 4.5-9-4.5L12 3z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Virtual Server (VM)</div>
+                                <div class="text-[10px] text-slate-400 truncate">Guest — drop inside a Hypervisor Cluster</div>
                             </div>
                         </div>
 
@@ -784,13 +794,22 @@
                 specs: { reading: '22.1°C / 44% RH', protocol: 'BACnet IP / MQTT', alertThreshold: '28.0°C Max' }
             },
             server: {
-                name: 'Rack Server (1U)',
+                name: 'Physical Server (1U)',
                 category: 'compute',
                 icon: '<svg class="w-5 h-5 text-lime-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6" rx="1"></rect><circle cx="7" cy="12" r="1"></circle><line x1="11" y1="12" x2="18" y2="12"></line></svg>',
                 color: 'border-lime-500/50 bg-slate-900',
                 powerKW: 0.9,
                 defaultPorts: 4,
-                specs: { cpu: 'Dual Xeon Gold, 32 cores', ram: '512 GB DDR5 ECC', os: 'VMware ESXi 8.0' }
+                specs: { cpu: 'Dual Xeon Gold, 32 cores', ram: '512 GB DDR5 ECC', os: 'Bare-metal / Hypervisor-capable' }
+            },
+            vserver: {
+                name: 'Virtual Server (VM)',
+                category: 'compute',
+                icon: '<svg class="w-5 h-5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3l9 4.5-9 4.5-9-4.5L12 3z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5"></path></svg>',
+                color: 'border-violet-500/50 border-dashed bg-slate-900',
+                powerKW: 0,
+                defaultPorts: 2,
+                specs: { vcpu: '4 vCPU', vram: '16 GB vRAM', os: 'Guest OS' }
             },
             loadbalancer: {
                 name: 'Load Balancer (L4/L7)',
@@ -947,7 +966,10 @@
         const PURDUE_OT_LEVELS = ['l0', 'l1', 'l2', 'l3'];
         const PURDUE_IT_LEVELS = ['l4', 'l5'];
 
-        /* Common environment roles that can be tagged onto compute hardware (rack/server/storage/backup/kvm) */
+        /* Common environment roles that can be tagged onto compute hardware (rack/server/vserver/storage/backup/kvm).
+           Being a hypervisor host is not a role here — it's the separate `isHypervisor` flag on a
+           Physical Server node (see updateNodeHypervisorFlag / getClusterHostNodes), since a host
+           keeps its own application role (or none) independent of whether it's virtualizing guests. */
         const ROLE_TAGS = {
             none: { label: 'No Role Assigned', abbr: '', color: '#64748b' },
             bastion: { label: 'Bastion / Jump Host', abbr: 'BSN', color: '#f97316' },
@@ -968,7 +990,6 @@
             access_control_server: { label: 'Access Control Server (PACS)', abbr: 'PACS', color: '#f43f5e' },
             dhcp: { label: 'DHCP Server', abbr: 'DHCP', color: '#10b981' },
             ipam: { label: 'IPAM / DDI Server', abbr: 'IPAM', color: '#6b7280' },
-            hypervisor: { label: 'Hypervisor Host (ESXi/Hyper-V)', abbr: 'HV', color: '#a855f7' },
             hypervisor_mgmt: { label: 'Virtualization Management (vCenter/SCVMM)', abbr: 'HYP', color: '#ef4444' },
             k8s: { label: 'Container Orchestration (Kubernetes)', abbr: 'K8S', color: '#3b82f6' },
             dcim: { label: 'DCIM / Asset Management Platform', abbr: 'DCIM', color: '#71717a' },
@@ -992,9 +1013,8 @@
             third_party: { label: 'Third-Party / Vendor', abbr: '3RD', color: '#f97316' }
         };
 
-        /* Hypervisor cluster zones: styling, and the role/cap used to detect & count member hosts */
+        /* Hypervisor cluster zones: styling, and the recommended cap on member hosts */
         const CLUSTER_ZONE_STYLE = { color: '#a855f7' };
-        const CLUSTER_HOST_ROLE = 'hypervisor';
         const CLUSTER_MAX_HOSTS = 3;
 
         /* Colors auto-assigned to newly created VLANs, cycled by creation order */
@@ -1020,7 +1040,6 @@
             counter: 1,
             zoneCounter: 1,
             cableCounter: 1,
-            vmCounter: 1,
             selectedNodeId: null,
             selectedConnectionId: null,
             selectedZoneId: null,
@@ -1068,8 +1087,7 @@
                     vlans: state.vlans,
                     counter: state.counter,
                     zoneCounter: state.zoneCounter,
-                    cableCounter: state.cableCounter,
-                    vmCounter: state.vmCounter
+                    cableCounter: state.cableCounter
                 }
             };
         }
@@ -1198,10 +1216,18 @@
                 powerKW: archetype.powerKW,
                 notes: 'Primary production unit.',
                 role: 'none',
-                userType: archetypeKey === 'user' ? 'dc_user' : ''
+                userType: archetypeKey === 'user' ? 'dc_user' : '',
+                isHypervisor: false
             };
             if (nodeData.role === undefined) nodeData.role = 'none';
             if (nodeData.userType === undefined) nodeData.userType = archetypeKey === 'user' ? 'dc_user' : '';
+            if (nodeData.isHypervisor === undefined) nodeData.isHypervisor = false;
+            // Migrate pre-existing saves/autosaves from when "Hypervisor Host" was a Server Role
+            // value instead of its own flag.
+            if (nodeData.role === 'hypervisor') {
+                nodeData.role = 'none';
+                nodeData.isHypervisor = true;
+            }
 
             state.nodes[id] = nodeData;
             renderNodeElement(nodeData);
@@ -1232,6 +1258,7 @@
             nodeEl.innerHTML = `
                 ${badgeTag ? `<div class="absolute -top-2.5 -right-2 px-1.5 py-0.5 rounded text-[9px] font-bold text-white shadow whitespace-nowrap" style="background:${badgeTag.color}" title="${escapeHtml(badgeTag.label)}">${escapeHtml(badgeTag.abbr)}</div>` : ''}
                 ${violation ? `<div class="absolute -top-2.5 -left-2 px-1 py-0.5 rounded bg-red-600 text-white shadow" title="This user is not authorized for the zone they're placed in"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg></div>` : ''}
+                ${data.isHypervisor ? `<div class="absolute -top-2.5 -left-2 px-1.5 py-0.5 rounded text-[9px] font-bold text-white shadow whitespace-nowrap" style="background:${CLUSTER_ZONE_STYLE.color}" title="Hypervisor Host — provides virtualization for guest VMs">HV</div>` : ''}
                 <div class="flex items-center justify-between gap-2 pb-2 border-b border-slate-800">
                     <div class="flex items-center gap-2 min-w-0">
                         <div class="p-1.5 rounded-lg bg-slate-800 border border-slate-700/80 shrink-0">
@@ -1566,12 +1593,6 @@
             state.connections.forEach(c => {
                 if (c.vlanIds) c.vlanIds = c.vlanIds.filter(v => v !== id);
             });
-            // Clear this VLAN from any guest VMs assigned to it
-            Object.values(state.zones).forEach(z => {
-                (z.guestVMs || []).forEach(vm => {
-                    if (vm.vlanId === id) vm.vlanId = '';
-                });
-            });
             if (state.highlightVlanId === id) state.highlightVlanId = null;
             renderVlanHighlightSelect();
             renderVlanManagerList();
@@ -1787,6 +1808,13 @@
                             </div>
                             ` : ''}
 
+                            ${node.archetypeKey === 'server' ? `
+                            <div class="flex items-center gap-2 p-2 bg-slate-800/60 rounded border border-slate-700">
+                                <input type="checkbox" id="node-hypervisor" ${node.isHypervisor ? 'checked' : ''} onchange="updateNodeHypervisorFlag('${node.id}', this.checked)" class="rounded text-brand-500">
+                                <label for="node-hypervisor" class="text-xs text-slate-300">Hypervisor Host <span class="text-slate-500">— place inside a Hypervisor Cluster zone to count as a host</span></label>
+                            </div>
+                            ` : ''}
+
                             ${meta.category === 'user' ? `
                             <div>
                                 <label class="text-[10px] text-slate-400 uppercase font-semibold">User Type</label>
@@ -1916,50 +1944,26 @@
                         </div>
                         ` : `
                         <div class="p-2 rounded border ${overCap ? 'border-red-700 bg-red-950/30' : 'border-slate-700 bg-slate-800/60'}">
-                            <div class="flex items-center justify-between text-[11px]">
-                                <span class="text-slate-300">Detected Hosts (role: Hypervisor Host)</span>
+                            <div class="flex items-center justify-between text-[11px] mb-1.5">
+                                <span class="text-slate-300">Hosts (Physical Server, Hypervisor Host)</span>
                                 <span class="font-mono font-semibold ${overCap ? 'text-red-400' : 'text-slate-200'}">${hostCount} / ${CLUSTER_MAX_HOSTS}</span>
                             </div>
-                            ${overCap ? `<p class="text-[10px] text-red-400 mt-1">Exceeds the recommended ${CLUSTER_MAX_HOSTS}-node cluster size.</p>` : `<p class="text-[10px] text-slate-500 mt-1">Tag a device's Server Role as "Hypervisor Host" and place it inside this zone to be counted.</p>`}
+                            <p class="text-[10px] mb-1.5 ${overCap ? 'text-red-400' : 'text-slate-500'}">
+                                ${overCap ? `Exceeds the recommended ${CLUSTER_MAX_HOSTS}-node cluster size.`
+                                    : hostCount === 0 ? 'No hosts yet — drag a Physical Server into this zone and check its "Hypervisor Host" box.'
+                                    : hostCount === 1 ? 'Single-node hypervisor (no HA/failover across hosts).'
+                                    : `${hostCount}-node hypervisor cluster.`}
+                            </p>
+                            <div class="space-y-1.5 max-h-40 overflow-y-auto">
+                                ${getClusterHostNodes(zone).map(renderClusterMemberRow).join('')}
+                            </div>
                         </div>
 
                         <div class="pt-2 border-t border-slate-800">
-                            <div class="flex items-center justify-between mb-1.5">
-                                <span class="text-[10px] text-slate-400 uppercase font-semibold">Guest VMs (${(zone.guestVMs || []).length})</span>
-                                <button onclick="addGuestVM('${zone.id}')" class="text-[10px] px-2 py-0.5 rounded bg-brand-600 hover:bg-brand-700 text-white font-medium transition">+ Add Guest VM</button>
-                            </div>
-                            <div class="space-y-2 max-h-64 overflow-y-auto">
-                                ${(zone.guestVMs || []).length === 0 ? '<p class="text-[11px] text-slate-500 italic">No guest VMs yet.</p>' : ''}
-                                ${(zone.guestVMs || []).map(vm => {
-                                    const dimmed = state.highlightVlanId && vm.vlanId !== state.highlightVlanId;
-                                    return `
-                                    <div class="p-2 bg-slate-800/60 rounded border border-slate-700/60 space-y-1.5 transition-opacity" style="opacity:${dimmed ? 0.3 : 1}">
-                                        <div class="flex items-center gap-1.5">
-                                            <input type="text" value="${escapeHtml(vm.name)}" onchange="updateGuestVM('${zone.id}', '${vm.id}', 'name', this.value)" class="flex-1 min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700 focus:border-brand-500 focus:outline-none">
-                                            <button onclick="deleteGuestVM('${zone.id}', '${vm.id}')" class="text-slate-400 hover:text-red-400 p-1 rounded hover:bg-slate-700 transition shrink-0" title="Remove Guest VM">
-                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                                            </button>
-                                        </div>
-                                        <div class="grid grid-cols-2 gap-1.5">
-                                            <select onchange="updateGuestVM('${zone.id}', '${vm.id}', 'role', this.value)" class="w-full min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700">
-                                                ${Object.entries(ROLE_TAGS).map(([key, tag]) => `<option value="${key}" ${(vm.role || 'none') === key ? 'selected' : ''}>${escapeHtml(tag.label)}</option>`).join('')}
-                                            </select>
-                                            <select onchange="updateGuestVM('${zone.id}', '${vm.id}', 'vlanId', this.value)" class="w-full min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700">
-                                                <option value="">No VLAN</option>
-                                                ${Object.values(state.vlans).sort((a, b) => Number(a.id) - Number(b.id)).map(v => `<option value="${escapeHtml(v.id)}" ${vm.vlanId === v.id ? 'selected' : ''}>VLAN ${escapeHtml(v.id)}${v.name ? ' — ' + escapeHtml(v.name) : ''}</option>`).join('')}
-                                            </select>
-                                        </div>
-                                        <div class="grid grid-cols-2 gap-1.5">
-                                            <input type="text" placeholder="IP Address" value="${escapeHtml(vm.ip || '')}" onchange="updateGuestVM('${zone.id}', '${vm.id}', 'ip', this.value)" class="w-full min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700 font-mono focus:border-brand-500 focus:outline-none">
-                                            <select onchange="updateGuestVM('${zone.id}', '${vm.id}', 'status', this.value)" class="w-full min-w-0 bg-slate-900 text-[11px] text-white px-1.5 py-1 rounded border border-slate-700">
-                                                <option value="Healthy" ${vm.status === 'Healthy' ? 'selected' : ''}>Healthy</option>
-                                                <option value="Warning" ${vm.status === 'Warning' ? 'selected' : ''}>Warning</option>
-                                                <option value="Maintenance" ${vm.status === 'Maintenance' ? 'selected' : ''}>Maintenance</option>
-                                                <option value="Offline" ${vm.status === 'Offline' ? 'selected' : ''}>Offline</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                `; }).join('')}
+                            <span class="text-[10px] text-slate-400 uppercase font-semibold block mb-1.5">Guest Servers (${getClusterGuestNodes(zone).length})</span>
+                            <div class="space-y-1.5 max-h-64 overflow-y-auto">
+                                ${getClusterGuestNodes(zone).length === 0 ? '<p class="text-[11px] text-slate-500 italic">No guests yet — drag a Virtual Server (VM) into this zone.</p>' : ''}
+                                ${getClusterGuestNodes(zone).map(renderClusterMemberRow).join('')}
                             </div>
                         </div>
                         `}
@@ -2041,6 +2045,15 @@
         function updateNodeRole(id, val) {
             if (!state.nodes[id]) return;
             state.nodes[id].role = val;
+            renderNodeElement(state.nodes[id]);
+            selectNode(id);
+            refreshZoneDerivedState();
+            scheduleAutosave();
+        }
+
+        function updateNodeHypervisorFlag(id, checked) {
+            if (!state.nodes[id]) return;
+            state.nodes[id].isHypervisor = checked;
             renderNodeElement(state.nodes[id]);
             selectNode(id);
             refreshZoneDerivedState();
@@ -2153,11 +2166,9 @@
                 level: 'custom',
                 zoneType: 'purdue',
                 accessRoles: [],
-                guestVMs: [],
                 x, y, width, height
             };
             if (!zoneData.accessRoles) zoneData.accessRoles = [];
-            if (!zoneData.guestVMs) zoneData.guestVMs = [];
             if (!zoneData.zoneType) zoneData.zoneType = 'purdue';
             state.zones[id] = zoneData;
             renderZoneElement(zoneData);
@@ -2167,13 +2178,44 @@
             return zoneData;
         }
 
-        // Counts nodes tagged with the hypervisor host role whose center falls within a cluster zone's bounds
+        // Counts Physical Server nodes flagged as hypervisor hosts whose center falls within a cluster zone's bounds
         function countClusterHosts(data) {
-            return Object.values(state.nodes).filter(n => {
-                if (n.role !== CLUSTER_HOST_ROLE) return false;
-                const c = getNodeCenter(n);
-                return c.x >= data.x && c.x <= data.x + data.width && c.y >= data.y && c.y <= data.y + data.height;
-            }).length;
+            return getClusterHostNodes(data).length;
+        }
+
+        // A cluster zone's hosts and guests are both just nodes dragged inside its rectangle —
+        // the same containment rule used everywhere else in the app. Hosts are Physical Server
+        // nodes with the isHypervisor flag set; guests are Virtual Server nodes (a VM can't itself
+        // be a host, so archetype alone is enough — no role check needed).
+        function isNodeContained(n, data) {
+            const c = getNodeCenter(n);
+            return c.x >= data.x && c.x <= data.x + data.width && c.y >= data.y && c.y <= data.y + data.height;
+        }
+
+        function getClusterHostNodes(data) {
+            return Object.values(state.nodes).filter(n => n.archetypeKey === 'server' && n.isHypervisor && isNodeContained(n, data));
+        }
+
+        function getClusterGuestNodes(data) {
+            return Object.values(state.nodes)
+                .filter(n => n.archetypeKey === 'vserver' && isNodeContained(n, data))
+                .sort((a, b) => a.label.localeCompare(b.label));
+        }
+
+        // Shared row markup for a host/guest entry in the cluster zone inspector — click to jump to that node.
+        function renderClusterMemberRow(n) {
+            const meta = COMPONENT_METADATA[n.archetypeKey];
+            const roleTag = n.role && ROLE_TAGS[n.role] && n.role !== 'none' ? ROLE_TAGS[n.role] : null;
+            return `
+                <button onclick="selectNode('${n.id}')" class="w-full flex items-center gap-2 text-left p-1.5 bg-slate-800/60 hover:bg-slate-800 rounded border border-slate-700/60 transition">
+                    <span class="w-1.5 h-1.5 rounded-full shrink-0 ${n.status === 'Healthy' ? 'bg-emerald-400' : 'bg-amber-400'}"></span>
+                    <span class="min-w-0 flex-1">
+                        <span class="block text-[11px] text-slate-200 truncate">${escapeHtml(n.label)}</span>
+                        <span class="block text-[10px] font-mono text-slate-500 truncate">${escapeHtml(n.ip || 'No IP')} · ${escapeHtml(meta.name)}</span>
+                    </span>
+                    ${roleTag ? `<span class="px-1 rounded text-[8px] font-bold text-white shrink-0" style="background:${roleTag.color}" title="${escapeHtml(roleTag.label)}">${escapeHtml(roleTag.abbr)}</span>` : ''}
+                </button>
+            `;
         }
 
         // Returns every zone whose rectangle geometrically contains a node's center point
@@ -2350,10 +2392,11 @@
             let clusterChips = '';
             if (isCluster) {
                 const hostCount = countClusterHosts(data);
+                const guestCount = getClusterGuestNodes(data).length;
                 const overCap = hostCount > CLUSTER_MAX_HOSTS;
                 clusterChips = `
                     <span class="px-1 rounded text-[8px] font-bold ${overCap ? 'bg-red-600 text-white' : ''}" style="${overCap ? '' : 'background:rgba(0,0,0,0.35)'}" title="Hypervisor hosts detected in this cluster (recommended max ${CLUSTER_MAX_HOSTS})">${hostCount}/${CLUSTER_MAX_HOSTS} Hosts</span>
-                    <span class="px-1 rounded text-[8px] font-bold" style="background:rgba(0,0,0,0.35)" title="Guest VMs in this cluster">${(data.guestVMs || []).length} VMs</span>
+                    <span class="px-1 rounded text-[8px] font-bold" style="background:rgba(0,0,0,0.35)" title="Guest servers detected in this cluster">${guestCount} Guests</span>
                 `;
             }
 
@@ -2451,49 +2494,9 @@
             const zone = state.zones[id];
             if (!zone) return;
             zone.zoneType = val;
-            if (!zone.guestVMs) zone.guestVMs = [];
             renderZoneElement(zone);
             updateInspector();
             refreshZoneDerivedState();
-            scheduleAutosave();
-        }
-
-        function addGuestVM(zoneId) {
-            const zone = state.zones[zoneId];
-            if (!zone) return;
-            if (!zone.guestVMs) zone.guestVMs = [];
-            const vmId = 'vm_' + (state.vmCounter++);
-            zone.guestVMs.push({
-                id: vmId,
-                name: 'New Guest VM',
-                role: 'none',
-                vlanId: '',
-                ip: '',
-                status: 'Healthy'
-            });
-            renderZoneElement(zone);
-            updateInspector();
-            scheduleAutosave();
-        }
-
-        function updateGuestVM(zoneId, vmId, field, value) {
-            const zone = state.zones[zoneId];
-            if (!zone || !zone.guestVMs) return;
-            const vm = zone.guestVMs.find(v => v.id === vmId);
-            if (!vm) return;
-            vm[field] = value;
-            // Re-render the inspector (not the canvas tab) so a VLAN change is immediately
-            // reflected by the highlight-mode dimming on this guest's roster row.
-            updateInspector();
-            scheduleAutosave();
-        }
-
-        function deleteGuestVM(zoneId, vmId) {
-            const zone = state.zones[zoneId];
-            if (!zone || !zone.guestVMs) return;
-            zone.guestVMs = zone.guestVMs.filter(v => v.id !== vmId);
-            renderZoneElement(zone);
-            updateInspector();
             scheduleAutosave();
         }
 
@@ -2551,7 +2554,6 @@
             state.counter = incomingState.counter || Object.keys(incomingState.nodes).length + 1;
             state.zoneCounter = incomingState.zoneCounter || 1;
             state.cableCounter = incomingState.cableCounter || incomingState.connections.length + 1;
-            state.vmCounter = incomingState.vmCounter || 1;
             state.vlans = incomingState.vlans || {};
             state.connections = (incomingState.connections || []).map(c => ({ vlanIds: [], ...c }));
 
@@ -2865,31 +2867,28 @@
             toggleZoneAccessRole('zone_seed_l3', 'dc_user', true);
             toggleZoneAccessRole('zone_seed_l3', 'dc_manager', true);
 
-            // Hypervisor cluster: a Cluster-type zone nested inside its own Purdue security zone,
-            // holding up to 3 hosts and a small guest VM roster spanning multiple server types.
-            createZone(140, 710, 560, 410, { id: 'zone_seed_l3v', label: 'Level 3 — Virtualization Farm', level: 'l3', zoneType: 'purdue', accessRoles: ['dc_manager', 'network_ops'], guestVMs: [], x: 140, y: 710, width: 560, height: 410 });
-            createZone(165, 920, 460, 170, {
+            // Hypervisor cluster: a Cluster-type zone nested inside its own Purdue security zone.
+            // Hosts (Physical Server, isHypervisor:true) and guests (Virtual Server) are both
+            // ordinary compute nodes dragged inside the cluster's rectangle — membership (and the
+            // host/guest split) is purely geometric, detected by getClusterHostNodes()/
+            // getClusterGuestNodes(), never stored on the zone itself.
+            createZone(140, 710, 750, 580, { id: 'zone_seed_l3v', label: 'Level 3 — Virtualization Farm', level: 'l3', zoneType: 'purdue', accessRoles: ['dc_manager', 'network_ops'], x: 140, y: 710, width: 750, height: 580 });
+            createZone(165, 920, 700, 330, {
                 id: 'zone_seed_cluster',
                 label: 'Prod Hypervisor Cluster',
                 zoneType: 'cluster',
                 accessRoles: ['dc_manager', 'network_ops'],
-                guestVMs: [
-                    { id: 'vm_seed_1', name: 'AD-DC01 (Domain Controller)', role: 'ad', vlanId: '10', ip: '10.240.10.21', status: 'Healthy' },
-                    { id: 'vm_seed_2', name: 'WEB-APP02', role: 'webapp', vlanId: '10', ip: '10.240.10.22', status: 'Healthy' },
-                    { id: 'vm_seed_3', name: 'DB-SQL03', role: 'database', vlanId: '20', ip: '10.240.20.15', status: 'Healthy' }
-                ],
-                x: 165, y: 920, width: 460, height: 170
+                x: 165, y: 920, width: 700, height: 330
             });
-            state.vmCounter = 4;
             state.zoneCounter = 6;
 
-            const hv1 = createNode('server', 185, 935);
+            const hv1 = createNode('server', 185, 945);
             updateNodeLabel(hv1.id, 'Hypervisor Host 01');
-            updateNodeRole(hv1.id, 'hypervisor');
+            updateNodeHypervisorFlag(hv1.id, true);
 
-            const hv2 = createNode('server', 400, 935);
+            const hv2 = createNode('server', 420, 945);
             updateNodeLabel(hv2.id, 'Hypervisor Host 02');
-            updateNodeRole(hv2.id, 'hypervisor');
+            updateNodeHypervisorFlag(hv2.id, true);
 
             const cHv1 = createConnection(sw1.id, hv1.id, 'copper');
             const cHv2 = createConnection(sw1.id, hv2.id, 'copper');
@@ -2898,6 +2897,24 @@
                 toggleConnectionVlan(c.id, '20', true);
                 toggleConnectionVlan(c.id, '99', true);
             });
+
+            // Guest VMs: Virtual Server nodes dragged into the same cluster zone as the hosts
+            // above, running various roles — this is what replaces the old free-text "Guest VM
+            // roster" model.
+            const vm1 = createNode('vserver', 185, 1080);
+            updateNodeLabel(vm1.id, 'AD-DC01 (Domain Controller)');
+            updateNodeRole(vm1.id, 'ad');
+            updateNodeIP(vm1.id, '10.240.10.21');
+
+            const vm2 = createNode('vserver', 420, 1080);
+            updateNodeLabel(vm2.id, 'WEB-APP02');
+            updateNodeRole(vm2.id, 'webapp');
+            updateNodeIP(vm2.id, '10.240.10.22');
+
+            const vm3 = createNode('vserver', 655, 1080);
+            updateNodeLabel(vm3.id, 'DB-SQL03');
+            updateNodeRole(vm3.id, 'database');
+            updateNodeIP(vm3.id, '10.240.20.15');
 
             // Example User/Persona objects: one compliant with its zone's Authorized Access list,
             // one flagged (red ring) to demonstrate the access-compliance check.
