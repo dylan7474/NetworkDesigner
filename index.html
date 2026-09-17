@@ -558,8 +558,12 @@
                 <!-- Purdue / Security Zone Backgrounds (drawn behind cables and nodes) -->
                 <div id="zones-container" class="absolute top-0 left-0 w-full h-full z-0 pointer-events-none"></div>
 
-                <!-- SVG Connections Layer -->
-                <svg id="svg-layer" class="absolute top-0 left-0 w-full h-full pointer-events-none z-10 overflow-visible">
+                <!-- SVG Connections Layer: above nodes-container (z-20) so a cable is never hidden
+                     behind an unrelated device it happens to route near — edge-anchored routing
+                     (see renderConnections/getNodeEdgePoint) keeps it from overlapping its own
+                     endpoint nodes' visible content, so drawing on top elsewhere reads cleanly
+                     rather than looking like wires laid over the boxes. -->
+                <svg id="svg-layer" class="absolute top-0 left-0 w-full h-full pointer-events-none z-30 overflow-visible">
                     <defs>
                         <!-- Glow filter for selected cables -->
                         <filter id="cable-glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -1474,10 +1478,18 @@
             window.removeEventListener('mousemove', updateDraftCableMouse);
         }
 
+        // The node card's footprint, used for both its center point and (for cable routing) its
+        // edge/collision bounding box. Width matches the w-52 (208px) card exactly; height is an
+        // approximation — actual rendered height varies with role badges etc — generous enough
+        // that routing/collision checks stay conservative rather than clipping a taller card.
+        const NODE_HALF_W = 104;
+        const NODE_HALF_H = 46;
+        const NODE_COLLISION_H = 120;
+
         function getNodeCenter(node) {
             return {
-                x: node.x + 104, // half of 208px (w-52)
-                y: node.y + 46   // approx middle height
+                x: node.x + NODE_HALF_W,
+                y: node.y + NODE_HALF_H
             };
         }
 
@@ -1510,46 +1522,145 @@
             return newConn;
         }
 
-        // Computes a 3-segment right-angle ("PCB trace") route between two points, bending on
-        // whichever axis has the larger gap first so it reads as one clean elbow rather than a
-        // zigzag. Returns the SVG path `d`, the point on the path to anchor the badge/VLAN chips
-        // (the middle segment's own midpoint — not just the endpoints' average, which for an
-        // offset elbow wouldn't actually sit on the path), and a unit vector perpendicular to
-        // that middle segment for offsetting the chips off it.
-        function computeOrthogonalRoute(p1, p2) {
-            const dx = p2.x - p1.x, dy = p2.y - p1.y;
-            if (Math.abs(dx) >= Math.abs(dy)) {
-                const midX = p1.x + dx / 2;
-                return {
-                    d: `M ${p1.x} ${p1.y} L ${midX} ${p1.y} L ${midX} ${p2.y} L ${p2.x} ${p2.y}`,
-                    midX, midY: (p1.y + p2.y) / 2,
-                    perpX: 1, perpY: 0
-                };
+        // Where a cable should leave/enter a node's card: on the edge facing the other endpoint
+        // (whichever side the route's primary axis points to), not the card's center — so the
+        // visible cable stops at the card boundary instead of visually cutting across its own
+        // endpoint. `dx`/`dy` is the direction FROM this node TOWARD the other one.
+        function getNodeEdgePoint(center, dx, dy, horizontalFirst) {
+            if (horizontalFirst) {
+                return { x: center.x + (dx >= 0 ? NODE_HALF_W : -NODE_HALF_W), y: center.y };
             }
-            const midY = p1.y + dy / 2;
+            return { x: center.x, y: center.y + (dy >= 0 ? NODE_HALF_H : -NODE_HALF_H) };
+        }
+
+        // Builds a 3-segment right-angle ("PCB trace") route between two points at a given bend
+        // coordinate ("shelf"). `horizontalFirst`: true bends via a vertical jog at shelf-X
+        // (H-V-H — the two long runs are horizontal), false via a horizontal jog at shelf-Y (V-H-V
+        // — the two long runs are vertical). Letting the shelf move away from the plain midpoint
+        // is what lets the router detour around a crowded row/column instead of always cutting
+        // straight through the endpoints' own row height — see findClearRoute().
+        function buildRouteAt(p1, p2, horizontalFirst, shelf) {
+            const corner1 = horizontalFirst ? { x: shelf, y: p1.y } : { x: p1.x, y: shelf };
+            const corner2 = horizontalFirst ? { x: shelf, y: p2.y } : { x: p2.x, y: shelf };
+            const points = [p1, corner1, corner2, p2];
             return {
-                d: `M ${p1.x} ${p1.y} L ${p1.x} ${midY} L ${p2.x} ${midY} L ${p2.x} ${p2.y}`,
-                midX: (p1.x + p2.x) / 2, midY,
-                perpX: 0, perpY: 1
+                d: points.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`).join(' '),
+                points,
+                midX: horizontalFirst ? shelf : (p1.x + p2.x) / 2,
+                midY: horizontalFirst ? (p1.y + p2.y) / 2 : shelf,
+                perpX: horizontalFirst ? 1 : 0,
+                perpY: horizontalFirst ? 0 : 1
             };
+        }
+
+        function segmentIntersectsRect(ax, ay, bx, by, rect) {
+            if (ax === bx) { // vertical segment
+                const loY = Math.min(ay, by), hiY = Math.max(ay, by);
+                return ax >= rect.x && ax <= rect.x + rect.w && hiY >= rect.y && loY <= rect.y + rect.h;
+            }
+            // horizontal segment
+            const loX = Math.min(ax, bx), hiX = Math.max(ax, bx);
+            return ay >= rect.y && ay <= rect.y + rect.h && hiX >= rect.x && loX <= rect.x + rect.w;
+        }
+
+        // Every node this route's own two endpoints aren't, as a rect — plus every hypervisor
+        // cluster zone that doesn't contain either endpoint, as ONE rect covering its whole
+        // footprint. A cluster commonly holds several stacked rows of hosts/guests; routing around
+        // it as a single block (rather than dodging each VM inside it individually) is both more
+        // useful and far cheaper to search.
+        function buildRouteObstacles(n1, n2, allNodes, clusterZones) {
+            const obstacles = allNodes
+                .filter(n => n.id !== n1.id && n.id !== n2.id)
+                .map(n => ({ x: n.x, y: n.y, w: NODE_HALF_W * 2, h: NODE_COLLISION_H }));
+            const c1 = getNodeCenter(n1), c2 = getNodeCenter(n2);
+            const inZone = (c, z) => c.x >= z.x && c.x <= z.x + z.width && c.y >= z.y && c.y <= z.y + z.height;
+            clusterZones.forEach(z => {
+                if (inZone(c1, z) || inZone(c2, z)) return;
+                obstacles.push({ x: z.x, y: z.y, w: z.width, h: z.height });
+            });
+            return obstacles;
+        }
+
+        function routeBlockingObstacles(points, obstacles) {
+            const blockers = [];
+            for (const rect of obstacles) {
+                for (let i = 0; i < points.length - 1; i++) {
+                    if (segmentIntersectsRect(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, rect)) {
+                        blockers.push(rect);
+                        break;
+                    }
+                }
+            }
+            return blockers;
+        }
+
+        // How far a detoured shelf needs to clear a card's own height/width band before it's
+        // genuinely outside it, plus a little breathing room.
+        const ROUTE_DETOUR_MARGIN = NODE_COLLISION_H / 2 + 30;
+
+        // Searches both bend orientations (preferring `primaryHorizontalFirst`) for a fully clear
+        // route. For each, tries the plain midpoint shelf first (the natural-looking route when
+        // nothing's in the way), then two detours clear of each endpoint's own row/column band —
+        // and whenever an attempt is blocked, adaptively retries just past whatever specifically
+        // blocked it (that obstacle's near/far edge), rather than only ever guessing a fixed
+        // one-card-height offset. That adaptive step is what lets the router clear an obstruction
+        // of any size — a whole stacked row of personas, a nested cluster zone — since it reacts
+        // to what's actually in the way instead of a fixed margin sized for a single card. Falls
+        // back to the primary orientation's plain midpoint (best effort) if nothing tried is
+        // clear. Bounded and cheap enough to run on every render, including interactive dragging.
+        function findClearRoute(p1, p2, primaryHorizontalFirst, obstacles) {
+            for (const horizontalFirst of [primaryHorizontalFirst, !primaryHorizontalFirst]) {
+                const a = horizontalFirst ? p1.x : p1.y;
+                const b = horizontalFirst ? p2.x : p2.y;
+                const baseShelves = [(a + b) / 2, a - ROUTE_DETOUR_MARGIN, a + ROUTE_DETOUR_MARGIN, b - ROUTE_DETOUR_MARGIN, b + ROUTE_DETOUR_MARGIN];
+                for (const shelf of baseShelves) {
+                    const route = buildRouteAt(p1, p2, horizontalFirst, shelf);
+                    const blockers = routeBlockingObstacles(route.points, obstacles);
+                    if (blockers.length === 0) return route;
+                    for (const rect of blockers) {
+                        const near = horizontalFirst ? rect.x : rect.y;
+                        const far = horizontalFirst ? rect.x + rect.w : rect.y + rect.h;
+                        for (const altShelf of [near - 24, far + 24]) {
+                            const altRoute = buildRouteAt(p1, p2, horizontalFirst, altShelf);
+                            if (routeBlockingObstacles(altRoute.points, obstacles).length === 0) return altRoute;
+                        }
+                    }
+                }
+            }
+            const fallbackShelf = primaryHorizontalFirst ? (p1.x + p2.x) / 2 : (p1.y + p2.y) / 2;
+            return buildRouteAt(p1, p2, primaryHorizontalFirst, fallbackShelf);
         }
 
         function renderConnections() {
             cableGroup.innerHTML = '';
             const orthogonal = state.cableRouting === 'orthogonal';
+            const allNodes = orthogonal ? Object.values(state.nodes) : null;
+            const clusterZones = orthogonal ? Object.values(state.zones).filter(z => z.zoneType === 'cluster') : null;
 
             state.connections.forEach(conn => {
                 const n1 = state.nodes[conn.from];
                 const n2 = state.nodes[conn.to];
                 if (!n1 || !n2) return;
 
-                const p1 = getNodeCenter(n1);
-                const p2 = getNodeCenter(n2);
+                const c1 = getNodeCenter(n1);
+                const c2 = getNodeCenter(n2);
+                const dx = c2.x - c1.x, dy = c2.y - c1.y;
+                // Treat anything within one card-height of vertical separation as "same row" (exit
+                // sideways) and anything past that as crossing rows (exit top/bottom) — matches how
+                // this app's diagrams are actually organized (Purdue levels as horizontal bands) far
+                // better than a plain |dx| vs |dy| comparison, which would send a same-row link that
+                // also happens to run far sideways out through the top/bottom instead.
+                const horizontalFirst = Math.abs(dy) < NODE_COLLISION_H;
+                // Edge-anchor both routing modes so the cable stops at the card boundary instead
+                // of drawing across its own endpoint's icon/label.
+                const p1 = getNodeEdgePoint(c1, dx, dy, horizontalFirst);
+                const p2 = getNodeEdgePoint(c2, -dx, -dy, horizontalFirst);
                 const cfg = CABLE_CONFIGS[conn.type] || CABLE_CONFIGS.fiber;
                 const isSelected = state.selectedConnectionId === conn.id;
                 const connVlans = conn.vlanIds || [];
                 const isDimmed = state.highlightVlanId && !connVlans.includes(state.highlightVlanId);
-                const route = orthogonal ? computeOrthogonalRoute(p1, p2) : null;
+
+                const route = orthogonal ? findClearRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones)) : null;
                 const midX = route ? route.midX : (p1.x + p2.x) / 2;
                 const midY = route ? route.midY : (p1.y + p2.y) / 2;
 
