@@ -107,18 +107,13 @@
             </div>
         </div>
 
-        <!-- Mode & Tool Selectors -->
-        <div class="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 space-x-1">
-            <button id="tool-select" onclick="setInteractionMode('select')" title="Select & Move Objects" class="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all bg-brand-600 text-white shadow-sm">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path></svg>
-                <span>Select / Move</span>
-            </button>
-            <button id="tool-connect" onclick="setInteractionMode('connect')" title="Create Cabling Connection" class="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all text-slate-400 hover:text-slate-200">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
-                <span>Cable Link</span>
-            </button>
-            <!-- Cable Type Selector -->
-            <div class="h-4 w-px bg-slate-800 my-auto"></div>
+        <!-- Cable Type Selector: which cable type the next connection (started from a device's own
+             "Connect" port link) will be created as. There is no separate Select/Move vs. Cable
+             Link mode toggle — every device has its own "Connect ➔" port link that starts a
+             connection directly from that device; clicking a destination device completes it and
+             the canvas is immediately back to normal select/drag behavior. -->
+        <div class="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 space-x-1.5">
+            <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold pl-2">Next Cable</span>
             <select id="cable-type-select" onchange="updateCableType(this.value)" class="bg-slate-900 text-slate-300 text-xs rounded border border-slate-700 px-2 py-1 focus:outline-none focus:border-brand-500 cursor-pointer">
                 <option value="fiber">100G/40G Fiber Optic</option>
                 <option value="copper">Cat6A 10GbE Copper</option>
@@ -1255,8 +1250,11 @@
             zoom: 1.0,
             showPalette: true, // left/right panel visibility — view preferences, not persisted in saved designs, same as zoom/cableRouting above
             showInspector: true,
-            mode: 'select', // 'select' or 'connect' — there is no dedicated 'zone' mode; drawing a zone is a click-drag gesture available directly within 'select' mode (see AGENT.md)
             activeCableType: 'fiber',
+            // Whether the canvas is mid-connection (a device's "Connect ➔" port link was clicked
+            // and a destination hasn't been picked yet) is tracked entirely by connectingSourceId
+            // below being non-null — there is no separate Select/Move vs. Cable Link mode to keep
+            // in sync with it (see AGENT.md).
             connectingSourceId: null,
             highlightVlanId: null,
             designNotes: ''
@@ -1271,8 +1269,6 @@
         const draftCable = document.getElementById('draft-cable');
         const inspectorContent = document.getElementById('inspector-content');
         const inspectorBadge = document.getElementById('inspector-badge');
-        const toolSelectBtn = document.getElementById('tool-select');
-        const toolConnectBtn = document.getElementById('tool-connect');
         const snapBtn = document.getElementById('btn-snap');
         const routingBtn = document.getElementById('btn-routing');
         const palettePanel = document.getElementById('palette-panel');
@@ -1346,17 +1342,6 @@
             const bigint = parseInt(hex.replace('#', ''), 16);
             const r = (bigint >> 16) & 255, g = (bigint >> 8) & 255, b = bigint & 255;
             return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-        }
-
-        function setInteractionMode(mode) {
-            state.mode = mode;
-            const base = 'px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all';
-            const idle = `${base} text-slate-400 hover:text-slate-200`;
-            toolSelectBtn.className = mode === 'select' ? `${base} bg-brand-600 text-white shadow-sm` : idle;
-            toolConnectBtn.className = mode === 'connect' ? `${base} bg-pink-600 text-white shadow-sm` : idle;
-
-            if (mode !== 'connect') cancelDraftConnection();
-            if (mode === 'connect') showToast('Link Mode: Click a source device, then click destination', 'info');
         }
 
         function updateCableType(type) {
@@ -1589,7 +1574,7 @@
         let activeDrag = null;
 
         function handleNodeMouseDown(e, nodeId) {
-            if (e.target.closest('button') || e.target.closest('.port-indicator') || state.mode === 'connect') {
+            if (e.target.closest('button') || e.target.closest('.port-indicator') || state.connectingSourceId) {
                 return;
             }
 
@@ -1645,16 +1630,18 @@
 
         function handleNodeClick(e, nodeId) {
             e.stopPropagation();
-            if (state.mode === 'connect') {
+            if (state.connectingSourceId) {
                 handleConnectingStep(nodeId);
             } else {
                 selectNode(nodeId);
             }
         }
 
+        // Every device card has its own "Connect ➔" port link (see port-indicator in
+        // renderNodeElement) — that's the only way to start a connection; there is no separate
+        // Cable Link mode to switch into first.
         function handlePortClick(nodeId, e) {
             e.stopPropagation();
-            setInteractionMode('connect');
             handleConnectingStep(nodeId);
         }
 
@@ -1672,11 +1659,12 @@
                 cancelDraftConnection();
                 showToast('Cabling cancelled.', 'info');
             } else {
-                // Second endpoint: establish link. Deliberately stays in 'connect' mode — Cable
-                // Link is "sticky" so wiring up several connections in a row doesn't need
-                // re-clicking the tool between each one; cancelDraftConnection() alone is enough
-                // to leave it ready for the next pair (clears connectingSourceId, hides the draft
-                // line, stops tracking the mouse).
+                // Second endpoint: establish link, then cancelDraftConnection() clears
+                // connectingSourceId — the moment it's null, handleNodeMouseDown/handleNodeClick
+                // treat the canvas as back to normal select/drag, so completing a connection
+                // immediately reverts to Select/Move with no separate mode switch needed. Start
+                // another connection the same way as the first: click a device's own "Connect ➔"
+                // port link again.
                 createConnection(state.connectingSourceId, nodeId, state.activeCableType);
                 cancelDraftConnection();
             }
@@ -3141,19 +3129,21 @@
             }
             if (e.target === canvasContainer || e.target.id === 'canvas-world' || e.target.id === 'svg-layer' || e.target.id === 'zones-container') {
                 clearSelection();
-                if (state.mode === 'connect') cancelDraftConnection();
+                if (state.connectingSourceId) cancelDraftConnection();
             }
         });
 
-        // Zone drawing: click-drag on empty canvas in 'select' mode carves out a new rectangle —
-        // same "empty space" target check the click handler above uses to clear selection, so it
-        // can never hijack a drag that starts on a node/cable/zone handle (those already stop the
-        // event from bubbling this far). There used to be a dedicated Zone tool/mode as the only
-        // way to do this; it was dropped once this gesture covered the same thing from 'select'
-        // mode without an extra mode switch, so this is the only way to draw a zone now.
+        // Zone drawing: click-drag on empty canvas carves out a new rectangle — same "empty
+        // space" target check the click handler above uses to clear selection, so it can never
+        // hijack a drag that starts on a node/cable/zone handle (those already stop the event
+        // from bubbling this far). Disabled while mid-connection (connectingSourceId set) so a
+        // drag meant to pick a destination device can't accidentally start carving a zone instead.
+        // There used to be a dedicated Zone tool/mode as the only way to do this, and later a
+        // Select-vs-Cable-Link mode toggle gated it too; both are gone now — this gesture is
+        // simply always available except mid-connection.
         canvasContainer.addEventListener('mousedown', (e) => {
             const isEmptyCanvasTarget = e.target === canvasContainer || e.target.id === 'canvas-world' || e.target.id === 'svg-layer' || e.target.id === 'zones-container';
-            if (state.mode !== 'select' || !isEmptyCanvasTarget) return;
+            if (state.connectingSourceId || !isEmptyCanvasTarget) return;
             if (e.target.closest('.zone-drag-handle') || e.target.closest('.zone-resize-handle')) return;
 
             const start = getWorldCoords(e);
