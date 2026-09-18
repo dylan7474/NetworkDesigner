@@ -1432,13 +1432,14 @@
                         el.style.left = `${newX}px`;
                         el.style.top = `${newY}px`;
                     }
-                    renderConnections(true);
+                    throttledRenderConnections();
                 },
                 onUp: () => {
                     window.removeEventListener('mousemove', activeDrag.onMove);
                     window.removeEventListener('mouseup', activeDrag.onUp);
                     activeDrag = null;
                     refreshZoneDerivedState();
+                    cancelThrottledRenderConnections();
                     renderConnections();
                     scheduleAutosave();
                 }
@@ -1750,16 +1751,19 @@
         }
 
         // ---- Grid-based A* router ----
-        // findClearRoute() above is a fast few-candidate heuristic — good enough for live feedback
-        // while dragging, but it can only bend once, so it can never route around an obstacle that
-        // blocks a route's *outer* segment rather than its bend (documented limitation from the
-        // previous pass). This is real pathfinding: a fine grid over the area between the two
-        // points, A* search with a turn penalty (fewer, longer straight runs instead of a staircase)
-        // and a zone-border cost (discourages hugging without forbidding the perpendicular crossings
-        // every inter-level cable needs to make), producing a route that actually goes around
-        // whatever's in the way, however it's shaped. It's the router renderConnections() uses for
-        // the settled/high-quality pass; findClearRoute() remains the live-drag preview because A*
-        // is materially more expensive per connection (see GRID_MAX_ITERATIONS).
+        // findClearRoute() above is a fast few-candidate heuristic — it can only bend once, so it
+        // can never route around an obstacle that blocks a route's *outer* segment rather than its
+        // bend (documented limitation from an earlier pass). This is real pathfinding: a fine grid
+        // over the area between the two points, A* search with a turn penalty (fewer, longer
+        // straight runs instead of a staircase) and a zone-border cost (discourages hugging without
+        // forbidding the perpendicular crossings every inter-level cable needs to make), producing
+        // a route that actually goes around whatever's in the way, however it's shaped. This is the
+        // only router renderConnections() uses now, live-drag included (see
+        // throttledRenderConnections() above renderConnections() for why — a materially cheaper but
+        // different-looking live preview used to cause the settled route to visibly jump once a
+        // drag ended, which was reported as the routing "looking ok, then getting worse" on
+        // release). findClearRoute() itself is still used, but now only as findBestRoute()'s own
+        // last-resort fallback for the rare case A* finds no path at all within any tried margin.
 
         const GRID_CELL_BASE = 24; // matches the app's snap-to-grid pitch
         const GRID_SEARCH_MARGINS = [260, 700, 1600]; // how far past the two endpoints the search area extends — escalates if a smaller area can't route around what's in the way
@@ -2227,12 +2231,13 @@
             return segments;
         }
 
-        // `fast`: use the cheap heuristic router instead of full A* — for live feedback while
-        // dragging a node/zone, where this runs on every mousemove tick and A*'s per-connection
-        // cost would add up. Callers that trigger a drag's own onMove pass true; every other call
-        // site (selection, VLAN/toggle changes, node/zone create-delete, drag-end, boot) omits it
-        // and gets the high-quality routed pass.
-        function renderConnections(fast) {
+        // Always the real A* router (findBestRoute) for every connection — no cheaper/different
+        // router for live drag feedback (see throttledRenderConnections() below for why: a
+        // materially different live preview used to make the settled route visibly jump once a
+        // drag ended). A drag's own onMove calls this indirectly, throttled, via
+        // throttledRenderConnections(); every other call site (selection, VLAN/toggle changes,
+        // node/zone create-delete, drag-end, boot) calls it directly.
+        function renderConnections() {
             cableGroup.innerHTML = '';
             const orthogonal = state.cableRouting === 'orthogonal';
             const allNodes = orthogonal ? Object.values(state.nodes) : null;
@@ -2269,19 +2274,15 @@
                 const isDimmed = state.highlightVlanId && !connVlans.includes(state.highlightVlanId);
 
                 const route = orthogonal
-                    ? (fast
-                        ? findClearRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones)
-                        : findBestRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones, collectSiblingSegments(n1, n2, routed), buildRouteObstacles(n1, n2, allNodes, clusterZones, false)))
+                    ? findBestRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones, collectSiblingSegments(n1, n2, routed), buildRouteObstacles(n1, n2, allNodes, clusterZones, false))
                     : null;
 
                 routed.push({ conn, p1, p2, cfg, isSelected, connVlans, isDimmed, route, points: route ? route.points : [p1, p2] });
             });
 
             // Phase 2: find every crossing between two different cables and assign each one a hop
-            // loop — only for the settled high-quality pass, both because it's an extra cost not
-            // worth paying on every drag tick and because fast-mode routes are throwaway previews
-            // anyway. Straight-line mode has no bends to hop over cleanly, so it's skipped there too.
-            const hopsByIndex = (!fast && orthogonal) ? findCableCrossingHops(routed) : new Map();
+            // loop. Straight-line mode has no bends to hop over cleanly, so it's skipped there.
+            const hopsByIndex = orthogonal ? findCableCrossingHops(routed) : new Map();
 
             // Phase 3: render.
             routed.forEach((entry, index) => {
@@ -2384,6 +2385,50 @@
 
                 cableGroup.appendChild(g);
             });
+        }
+
+        // Live drag feedback used to call a cheaper, cruder heuristic router (findClearRoute) so
+        // renderConnections() could run on every single mousemove tick, only switching to the real
+        // A* router (findBestRoute, obstacle/sibling/label-aware) once the drag ended. That saved
+        // time per tick, but the two routers can produce genuinely different-looking paths for the
+        // same two points — a route that looked fine while dragging could visibly jump to something
+        // more convoluted the moment the mouse was released, which is confusing (and was reported as
+        // exactly that: "the routing looks ok, then I release... and the routing changes, usually
+        // for the worse"). Real A* is only ~15ms for this app's whole reference design (measured),
+        // well inside a frame budget on its own — the actual fix is throttling *how often* the one
+        // real router runs during a drag, not swapping in a cheaper, different one. `renderConnections()`
+        // called through here during a node/zone drag now always computes the same route the drag
+        // will settle to; this just caps how often that computation re-runs while the mouse is still
+        // moving, since redoing full A* for every connection on every mousemove tick (not just the
+        // dragged object's own) is wasted work between ticks that are visually indistinguishable
+        // anyway. The dragged object's own on-screen position is a plain style.left/top write
+        // elsewhere and is never throttled — only this comparatively expensive re-route is.
+        const CONNECTIONS_RENDER_THROTTLE_MS = 50;
+        let lastConnectionsRenderTime = 0;
+        let pendingConnectionsRenderTimer = null;
+        function throttledRenderConnections() {
+            const now = performance.now();
+            const elapsed = now - lastConnectionsRenderTime;
+            if (elapsed >= CONNECTIONS_RENDER_THROTTLE_MS) {
+                lastConnectionsRenderTime = now;
+                renderConnections();
+            } else if (!pendingConnectionsRenderTimer) {
+                pendingConnectionsRenderTimer = setTimeout(() => {
+                    pendingConnectionsRenderTimer = null;
+                    lastConnectionsRenderTime = performance.now();
+                    renderConnections();
+                }, CONNECTIONS_RENDER_THROTTLE_MS - elapsed);
+            }
+        }
+
+        // Cancels any pending throttled re-route — call this once a drag ends, right before the
+        // final unthrottled renderConnections() every drag onUp already does, so a stray trailing
+        // timer can't fire a redundant extra render just after the drag has already settled.
+        function cancelThrottledRenderConnections() {
+            if (pendingConnectionsRenderTimer) {
+                clearTimeout(pendingConnectionsRenderTimer);
+                pendingConnectionsRenderTimer = null;
+            }
         }
 
         // ---- VLAN Directory ----
@@ -3514,12 +3559,13 @@
                         czEl.style.top = `${cz.y}px`;
                     }
                 });
-                if (childNodes.length) renderConnections(true);
+                if (childNodes.length) throttledRenderConnections();
             };
             const onUp = () => {
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
                 refreshZoneDerivedState();
+                cancelThrottledRenderConnections();
                 if (childNodes.length) renderConnections();
                 scheduleAutosave();
             };
