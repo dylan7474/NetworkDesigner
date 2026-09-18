@@ -2625,16 +2625,33 @@
             updateInspector();
         }
 
+        // Set right after a zone-drawing drag finishes, below — the mouseup that ends the drag
+        // still triggers a native 'click' on this same element afterward (its target at mouseup
+        // time is whatever was under the cursor, which is empty canvas: the new zone's own DOM
+        // element doesn't exist until the drag's mouseup handler creates it), which would otherwise
+        // immediately clear the selection createZone() just made.
+        let suppressNextCanvasClick = false;
+
         canvasContainer.addEventListener('click', (e) => {
+            if (suppressNextCanvasClick) {
+                suppressNextCanvasClick = false;
+                return;
+            }
             if (e.target === canvasContainer || e.target.id === 'canvas-world' || e.target.id === 'svg-layer' || e.target.id === 'zones-container') {
                 clearSelection();
                 if (state.mode === 'connect') cancelDraftConnection();
             }
         });
 
-        // Zone drawing: click-drag on empty canvas while in 'zone' mode carves out a new rectangle
+        // Zone drawing: click-drag on empty canvas while in 'zone' mode carves out a new rectangle.
+        // Also works in 'select' mode, as long as the drag actually starts on empty canvas — same
+        // "empty space" target check the click handler above uses to clear selection, so it can
+        // never hijack a drag that starts on a node/cable/zone handle (those already stop the event
+        // from bubbling this far). The dedicated Zone button/mode stays as an explicit, unambiguous
+        // way to do the same thing — this is an added shortcut, not a replacement for it.
         canvasContainer.addEventListener('mousedown', (e) => {
-            if (state.mode !== 'zone') return;
+            const isEmptyCanvasTarget = e.target === canvasContainer || e.target.id === 'canvas-world' || e.target.id === 'svg-layer' || e.target.id === 'zones-container';
+            if (state.mode !== 'zone' && !(state.mode === 'select' && isEmptyCanvasTarget)) return;
             if (e.target.closest('.zone-drag-handle') || e.target.closest('.zone-resize-handle')) return;
 
             const start = getWorldCoords(e);
@@ -2671,6 +2688,7 @@
                 previewEl.remove();
                 if (width > 20 && height > 20) {
                     createZone(x, y, width, height);
+                    suppressNextCanvasClick = true;
                 }
             };
 
