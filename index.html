@@ -2193,6 +2193,153 @@
         const HOP_HALF_WIDTH = 9; // distance from a crossing's center to where its loop starts/ends
         const HOP_BULGE = 12; // how far the loop arcs away from the straight line
 
+        // ---- Parallel-cable bundling: separate genuinely different cables that happen to share a
+        // straight corridor for a real stretch, which reads far worse than a crossing (a crossing
+        // has one point to put a hop at; an overlap has none — it just looks like one thick line).
+        // collectSiblingSegments()'s A* cost discourages *creating* new overlaps but was never going
+        // to get to zero: several real groups (e.g. everything fanning out from one facility
+        // supervisory server to its own field devices) share a genuine bottleneck corridor for
+        // hundreds of px, same as a real cable tray would — going through it is legitimately the
+        // right route, not a routing mistake to penalize away. This is the fix AGENT.md flags for
+        // that residual: a small lateral offset applied to the *rendered* geometry only, confined to
+        // the actually-overlapping stretch, so a shared corridor reads as N parallel lines with a
+        // visible gap instead of one thick stroke. Routing math (points, collisions, hop-crossings)
+        // stays untouched — this runs as a cosmetic pass between the router's plain points and
+        // buildDecoratedPathD(), same layering as that function's own corner-rounding.
+        const PARALLEL_BUNDLE_GAP = 7; // px between adjacent lanes when 2+ cables share a straight run
+        const PARALLEL_MIN_OVERLAP = 24; // shorter shared stretches aren't worth the extra bends to separate
+
+        // Every connection's routed polyline, broken into axis-aligned segments tagged with which
+        // *infinite line* they sit on (orientation + the fixed coordinate) — the grouping key two
+        // segments must share to be "the same corridor" at all. Excludes each route's own first and
+        // last segment — the pin lead-out stub findBestRoute() deliberately forces (see
+        // PIN_STUB_LENGTHS) — from ever joining a bundle: a lane-offset jog landing right on that
+        // stub would reintroduce a small version of the exact "doesn't leave the pin straight"
+        // problem that stub exists to prevent. The long shared corridors this pass targets are
+        // further out anyway, not in the first/last ~36px next to a card.
+        function collectRouteSegmentsByLine(routed) {
+            const byLine = new Map();
+            routed.forEach((entry, connIndex) => {
+                if (!entry.route) return;
+                const pts = entry.route.points;
+                for (let i = 1; i < pts.length - 2; i++) {
+                    const a = pts[i], b = pts[i + 1];
+                    const isVertical = a.x === b.x;
+                    const seg = {
+                        connIndex, segIndex: i, isVertical,
+                        lo: isVertical ? Math.min(a.y, b.y) : Math.min(a.x, b.x),
+                        hi: isVertical ? Math.max(a.y, b.y) : Math.max(a.x, b.x),
+                    };
+                    const key = `${isVertical ? 'v' : 'h'}:${isVertical ? a.x : a.y}`;
+                    if (!byLine.has(key)) byLine.set(key, []);
+                    byLine.get(key).push(seg);
+                }
+            });
+            return byLine;
+        }
+
+        // For every corridor (line) shared by 2+ different cables' segments, sweeps the shared axis
+        // to find the actual overlapping sub-stretches and how many (and which) connections are
+        // simultaneously present in each, and assigns each a lane offset (centered on 0, ordered by
+        // connection index for a stable, deterministic left-to-right/top-to-bottom lane order).
+        // Simplification: at most one offset zone is recorded per (connection, segment) — the widest
+        // one found — rather than supporting several disjoint zones along a single segment. A
+        // segment genuinely needing more than one would be an unusual, unlucky case; picking the
+        // most impactful zone is a reasonable trade for keeping this from turning into full interval
+        // bookkeeping.
+        function computeParallelBundleOffsets(routed) {
+            const byLine = collectRouteSegmentsByLine(routed);
+            const offsetsByKey = new Map(); // "${connIndex}:${segIndex}" -> {lo, hi, offset}
+
+            byLine.forEach(lineSegs => {
+                if (lineSegs.length < 2) return;
+                const boundaries = new Set();
+                lineSegs.forEach(s => { boundaries.add(s.lo); boundaries.add(s.hi); });
+                const sorted = [...boundaries].sort((a, b) => a - b);
+
+                for (let i = 0; i < sorted.length - 1; i++) {
+                    const lo = sorted[i], hi = sorted[i + 1];
+                    if (hi - lo < PARALLEL_MIN_OVERLAP) continue;
+                    const mid = (lo + hi) / 2;
+                    const active = lineSegs.filter(s => s.lo <= mid && s.hi >= mid);
+                    const byConn = new Map();
+                    active.forEach(s => { if (!byConn.has(s.connIndex)) byConn.set(s.connIndex, s); });
+                    if (byConn.size < 2) continue;
+
+                    const participants = [...byConn.values()].sort((a, b) => a.connIndex - b.connIndex);
+                    const n = participants.length;
+                    participants.forEach((s, laneIdx) => {
+                        const offset = (laneIdx - (n - 1) / 2) * PARALLEL_BUNDLE_GAP;
+                        const key = `${s.connIndex}:${s.segIndex}`;
+                        const existing = offsetsByKey.get(key);
+                        if (existing && existing.offset === offset && Math.abs(existing.hi - lo) < 0.5) {
+                            existing.hi = hi; // contiguous sub-interval, same lane — extend in place
+                        } else if (!existing || (hi - lo) > (existing.hi - existing.lo)) {
+                            offsetsByKey.set(key, { lo, hi, offset });
+                        }
+                    });
+                }
+            });
+
+            return offsetsByKey;
+        }
+
+        // Splices a lane offset into one segment: a short perpendicular jog in, a run at the shifted
+        // lane through [zone.lo, zone.hi] (clamped to the segment's own extent), then a jog back —
+        // direction-aware so it works whichever way the segment travels. Returns the points to
+        // append after `a` (i.e. up to and including `b`); an unaffected segment just returns `[b]`.
+        // The jogs are deliberately sharp corners here, same as every other bend in the plain
+        // points array — buildRouteRuns()'s existing corner-rounding smooths them exactly like any
+        // other, so a lane change reads as two small curves, not a hard elbow.
+        function buildParallelOffsetPoints(a, b, isVertical, zone) {
+            const alongOf = p => isVertical ? p.y : p.x;
+            const perpOf = p => isVertical ? p.x : p.y;
+            const makePoint = (along, perp) => isVertical ? { x: perp, y: along } : { x: along, y: perp };
+
+            const aAlong = alongOf(a), bAlong = alongOf(b);
+            const perp = perpOf(a);
+            const dir = Math.sign(bAlong - aAlong) || 1;
+            const segLo = Math.min(aAlong, bAlong), segHi = Math.max(aAlong, bAlong);
+            const zLo = Math.max(zone.lo, segLo), zHi = Math.min(zone.hi, segHi);
+            if (zLo >= zHi) return [b];
+
+            const enterAlong = dir > 0 ? zLo : zHi;
+            const exitAlong = dir > 0 ? zHi : zLo;
+            const points = [];
+            if (Math.abs(enterAlong - aAlong) > 0.5) points.push(makePoint(enterAlong, perp));
+            points.push(makePoint(enterAlong, perp + zone.offset));
+            points.push(makePoint(exitAlong, perp + zone.offset));
+            if (Math.abs(exitAlong - bAlong) > 0.5) points.push(makePoint(exitAlong, perp));
+            points.push(b);
+            return points;
+        }
+
+        // Applies computeParallelBundleOffsets()'s zones to one connection's own plain points,
+        // producing the polyline buildDecoratedPathD() actually renders from. The *logical* route
+        // (collision math, hop-crossing detection, badge placement) stays on the unshifted points —
+        // this only ever feeds the final visual path.
+        //
+        // Re-simplified before returning: buildRouteRuns() (via buildDecoratedPathD()) assumes its
+        // input has no adjacent duplicate points — a guarantee findBestRoute() already provides by
+        // running simplifyOrthogonalPath(), but this function's own inserted jog points can
+        // reintroduce exactly that (e.g. a zone boundary landing on an existing point despite the
+        // near-duplicate check above), which without this second pass corrupts the rendered path
+        // (buildRouteRuns() divides by a distance that comes out zero).
+        function applyParallelBundleOffsets(points, connIndex, offsetsByKey) {
+            if (!offsetsByKey.size) return points;
+            const result = [points[0]];
+            for (let i = 0; i < points.length - 1; i++) {
+                const a = points[i], b = points[i + 1];
+                const zone = offsetsByKey.get(`${connIndex}:${i}`);
+                if (!zone) {
+                    result.push(b);
+                    continue;
+                }
+                result.push(...buildParallelOffsetPoints(a, b, a.x === b.x, zone));
+            }
+            return simplifyOrthogonalPath(result);
+        }
+
         // Splits a sharp-cornered polyline into its straight "runs" (the parts that stay dead
         // straight) and the corner points between them, each run already trimmed back by
         // `radius` (or less, for a short segment) so a curve can be inserted at full radius
@@ -2390,12 +2537,20 @@
             // loop. Straight-line mode has no bends to hop over cleanly, so it's skipped there.
             const hopsByIndex = orthogonal ? findCableCrossingHops(routed) : new Map();
 
+            // Also cosmetic, also needs every cable's route up front for the same reason as hops
+            // above — separates genuinely different cables that share a straight corridor for a
+            // real stretch (see computeParallelBundleOffsets() for why this can't just be routed
+            // away). Applied per-connection just before decoration, below; the plain, unshifted
+            // route.points already used for hop-crossing detection above is untouched by it.
+            const parallelOffsets = orthogonal ? computeParallelBundleOffsets(routed) : new Map();
+
             // Phase 3: render.
             routed.forEach((entry, index) => {
                 const { conn, p1, p2, cfg, isSelected, connVlans, isDimmed, route } = entry;
                 const midX = route ? route.midX : (p1.x + p2.x) / 2;
                 const midY = route ? route.midY : (p1.y + p2.y) / 2;
-                const decoratedD = route ? buildDecoratedPathD(route.points, hopsByIndex.get(index) || []) : null;
+                const bundledPoints = route ? applyParallelBundleOffsets(route.points, index, parallelOffsets) : null;
+                const decoratedD = route ? buildDecoratedPathD(bundledPoints, hopsByIndex.get(index) || []) : null;
 
                 // Create SVG group for line and interactive hitzone
                 const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
