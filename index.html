@@ -1994,10 +1994,11 @@
             return simplified;
         }
 
-        // The point at half the route's total (Manhattan) length — not just the middle *point* in
-        // the array, since segments can be very different lengths — plus a unit vector
-        // perpendicular to whichever segment that point falls on, for the badge/VLAN chips.
-        function pathMidpoint(points) {
+        // The point at a given fraction (default half) of the route's total (Manhattan) length —
+        // not just the middle *point* in the array, since segments can be very different lengths —
+        // plus a unit vector perpendicular to whichever segment that point falls on, for the
+        // badge/VLAN chips.
+        function pathMidpoint(points, fraction = 0.5) {
             const segLens = [];
             let totalLen = 0;
             for (let i = 0; i < points.length - 1; i++) {
@@ -2005,7 +2006,7 @@
                 segLens.push(len);
                 totalLen += len;
             }
-            let remaining = totalLen / 2;
+            let remaining = totalLen * fraction;
             for (let i = 0; i < segLens.length; i++) {
                 if (remaining <= segLens[i] || i === segLens.length - 1) {
                     const a = points[i], b = points[i + 1];
@@ -2022,6 +2023,35 @@
             }
             const mid = points[Math.floor(points.length / 2)];
             return { midX: mid.x, midY: mid.y, perpX: 1, perpY: 0 };
+        }
+
+        // How far a VLAN-chip *stack* can reach out from its anchor point (each chip offset
+        // `10 + i*9` px out from the last — see the VLAN chip loop in renderConnections — so a
+        // handful of memberships can reach ~50px). The overlap check below tests the anchor
+        // itself, not each chip's actual offset position (chip count isn't known this early), so
+        // it needs this much clearance from a zone's label to guarantee every chip in a realistic
+        // stack clears it too, not just the anchor.
+        const BADGE_LABEL_CLEARANCE = 50;
+
+        function overlapsAnyZoneLabel(x, y, zones) {
+            return zones.some(z => x >= z.x - 10 && x <= z.x + z.width && y >= z.y - BADGE_LABEL_CLEARANCE && y <= z.y + 16);
+        }
+
+        // The badge/VLAN-chip anchor is cosmetic, not load-bearing like the route itself — but the
+        // plain arc-length midpoint can still land exactly on a zone's floating label chip (nothing
+        // about pathMidpoint() knows zones exist), stacking VLAN chips right over the zone's name.
+        // Nudging along the same path to a nearby fraction is enough; if every fraction tried still
+        // overlaps a label (a short route pinned near one), fall back to the true midpoint rather
+        // than get more aggressive — a badge slightly off from dead-center is a far smaller problem
+        // than one that's unreadable sitting on the zone name.
+        function findBadgeAnchor(points, zones) {
+            const mid = pathMidpoint(points);
+            if (!zones || !zones.length || !overlapsAnyZoneLabel(mid.midX, mid.midY, zones)) return mid;
+            for (const fraction of [0.35, 0.65, 0.2, 0.8, 0.1, 0.9]) {
+                const alt = pathMidpoint(points, fraction);
+                if (!overlapsAnyZoneLabel(alt.midX, alt.midY, zones)) return alt;
+            }
+            return mid;
         }
 
         function pointsToPathD(points) {
@@ -2044,7 +2074,7 @@
             let gridPoints = findGridPath(p1, p2, obstacles, zones, siblingSegments);
             if (!gridPoints && relaxedObstacles) gridPoints = findGridPath(p1, p2, relaxedObstacles, zones, siblingSegments);
             const points = gridPoints ? simplifyOrthogonalPath(gridPoints) : findClearRoute(p1, p2, horizontalFirst, obstacles, zones).points;
-            return { points, d: pointsToPathD(points), ...pathMidpoint(points) };
+            return { points, d: pointsToPathD(points), ...findBadgeAnchor(points, zones) };
         }
 
         // ---- PCB-style rendering: rounded corners + "hop" loops over unrelated crossings ----
