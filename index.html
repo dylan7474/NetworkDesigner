@@ -83,6 +83,53 @@
                 stroke-dashoffset: -12;
             }
         }
+
+        /* PDF export: prepareExportToPDF() scales/positions #canvas-world (via inline transform)
+           to fit the design's content bounding box onto one page, toggles body.printing, then
+           window.print() runs with these rules active. #canvas-world's own fixed 1400x990 print
+           box (independent of its normal 4800x3600 on-screen size) becomes the single page's full
+           content area; @page's explicit px size matches it exactly so there's no dependence on
+           the browser's default paper size or "fit to page" print-dialog setting. */
+        @media print {
+            @page {
+                size: 1400px 990px;
+                margin: 0;
+            }
+            html, body {
+                background: #0f172a !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            body.printing * {
+                visibility: hidden !important;
+            }
+            body.printing #canvas-world,
+            body.printing #canvas-world * {
+                visibility: visible !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            body.printing #canvas-world {
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 1400px !important;
+                height: 990px !important;
+                overflow: hidden !important;
+                transition: none !important;
+            }
+            /* Interactive-only affordances that shouldn't appear in an exported diagram. Toasts
+               specifically need display:none, not just the generic visibility:hidden rule above —
+               a toast's own fade-out uses `transition-all`, and CSS defers a visibility:hidden
+               change until the transition ends (by design, so fade-outs stay visible mid-fade);
+               display:none has no such delay, so a toast mid-fade can't flash into the print
+               output during the brief window before that transition finishes. */
+            body.printing .port-indicator,
+            body.printing #draft-cable,
+            body.printing #toast-container {
+                display: none !important;
+            }
+        }
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans h-screen w-screen overflow-hidden flex flex-col select-none">
@@ -159,6 +206,11 @@
             <button onclick="exportTopologyJSON()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium flex items-center gap-1.5 transition">
                 <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                 <span>Save JSON</span>
+            </button>
+
+            <button onclick="exportToPDF()" title="Print the diagram, scaled to fit one page — choose &quot;Save as PDF&quot; as the destination" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium flex items-center gap-1.5 transition">
+                <svg class="w-3.5 h-3.5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m0-10V5a2 2 0 012-2h6a2 2 0 012 2v2M7 17v3a1 1 0 001 1h8a1 1 0 001-1v-3"></path></svg>
+                <span>Export PDF</span>
             </button>
 
             <label class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium flex items-center gap-1.5 transition cursor-pointer">
@@ -1400,16 +1452,13 @@
         // hand-stepping), the computed scale here is deliberately *not* floored at 50%: a large
         // multi-site design can genuinely need well under that to show the whole thing at once, and
         // that's the entire point of this button.
-        function resetZoom() {
+        // Shared by resetZoom() (fit the on-screen viewport) and exportToPDF() (fit one printed
+        // page) — both need the same "tight box around everything actually on the canvas" rect,
+        // not the #canvas-world element's own fixed 4800x3600 size (mostly empty margin).
+        function getContentBoundingBox() {
             const nodes = Object.values(state.nodes);
             const zones = Object.values(state.zones);
-            if (nodes.length === 0 && zones.length === 0) {
-                state.zoom = 1.0;
-                updateZoomTransform();
-                canvasContainer.scrollLeft = 0;
-                canvasContainer.scrollTop = 0;
-                return;
-            }
+            if (nodes.length === 0 && zones.length === 0) return null;
 
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
             nodes.forEach(n => {
@@ -1425,17 +1474,30 @@
                 maxY = Math.max(maxY, z.y + z.height);
             });
 
+            return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+        }
+
+        function resetZoom() {
+            const bbox = getContentBoundingBox();
+            if (!bbox) {
+                state.zoom = 1.0;
+                updateZoomTransform();
+                canvasContainer.scrollLeft = 0;
+                canvasContainer.scrollTop = 0;
+                return;
+            }
+
             const FIT_MARGIN = 60;
-            const contentWidth = maxX - minX + FIT_MARGIN * 2;
-            const contentHeight = maxY - minY + FIT_MARGIN * 2;
+            const contentWidth = bbox.width + FIT_MARGIN * 2;
+            const contentHeight = bbox.height + FIT_MARGIN * 2;
             const availableWidth = canvasContainer.clientWidth;
             const availableHeight = canvasContainer.clientHeight;
 
             state.zoom = Math.max(0.1, Math.min(availableWidth / contentWidth, availableHeight / contentHeight, 2.0));
             updateZoomTransform();
 
-            canvasContainer.scrollLeft = Math.max(0, (minX - FIT_MARGIN) * state.zoom);
-            canvasContainer.scrollTop = Math.max(0, (minY - FIT_MARGIN) * state.zoom);
+            canvasContainer.scrollLeft = Math.max(0, (bbox.minX - FIT_MARGIN) * state.zoom);
+            canvasContainer.scrollTop = Math.max(0, (bbox.minY - FIT_MARGIN) * state.zoom);
         }
 
         function updateZoomTransform() {
@@ -1443,6 +1505,47 @@
             zoomLabel.textContent = `${Math.round(state.zoom * 100)}%`;
             renderConnections();
         }
+
+        const PRINT_PAGE_W = 1400;
+        const PRINT_PAGE_H = 990;
+        const PRINT_CONTENT_MARGIN = 50;
+
+        // Export the whole diagram as a single-page PDF via the browser's native print-to-PDF —
+        // no external rendering library needed, and it reuses the exact live DOM/SVG the user is
+        // already looking at (crisp vector text/lines) rather than rasterizing a screenshot.
+        // Scales/positions #canvas-world to fit the content bounding box onto the fixed print page
+        // size declared in the @media print CSS, hides everything else via body.printing, then
+        // calls window.print() — the user picks "Save as PDF" as the destination in the print
+        // dialog that opens (or a real printer, if that's what they actually want).
+        function exportToPDF() {
+            const bbox = getContentBoundingBox();
+            if (!bbox) {
+                showToast('Add at least one device or zone before exporting to PDF.', 'warning');
+                return;
+            }
+
+            clearSelection(); // selection rings/violation highlights are UI state, not part of a clean exported diagram
+
+            const scale = Math.min(
+                (PRINT_PAGE_W - PRINT_CONTENT_MARGIN * 2) / bbox.width,
+                (PRINT_PAGE_H - PRINT_CONTENT_MARGIN * 2) / bbox.height,
+                1 // never upscale a small design past its native size — stays crisp, just more centered white/dark space
+            );
+            const offsetX = (PRINT_PAGE_W - bbox.width * scale) / 2 - bbox.minX * scale;
+            const offsetY = (PRINT_PAGE_H - bbox.height * scale) / 2 - bbox.minY * scale;
+
+            canvasWorld.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+            document.body.classList.add('printing');
+            window.print();
+        }
+
+        // Fires after the print dialog closes, whether the user actually printed or cancelled —
+        // restores #canvas-world's normal on-screen transform/visibility. Without this the canvas
+        // would be left scaled/offset for print and everything else still hidden.
+        window.addEventListener('afterprint', () => {
+            document.body.classList.remove('printing');
+            updateZoomTransform();
+        });
 
         function handlePaletteDragStart(e, archetypeKey) {
             e.dataTransfer.setData('archetype', archetypeKey);
