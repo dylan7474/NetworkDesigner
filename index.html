@@ -84,12 +84,19 @@
             }
         }
 
-        /* PDF export: prepareExportToPDF() scales/positions #canvas-world (via inline transform)
-           to fit the design's content bounding box onto one page, toggles body.printing, then
-           window.print() runs with these rules active. #canvas-world's own fixed 1400x990 print
-           box (independent of its normal 4800x3600 on-screen size) becomes the single page's full
-           content area; @page's explicit px size matches it exactly so there's no dependence on
-           the browser's default paper size or "fit to page" print-dialog setting. */
+        /* PDF export: exportToPDF() scales/positions #canvas-world (via inline transform) to fit
+           the design's content bounding box onto one page, toggles body.printing, then
+           window.print() runs with these rules active. @page's explicit px size matches
+           PRINT_PAGE_W/PRINT_PAGE_H in JS exactly so there's no dependence on the browser's
+           default paper size or "fit to page" print-dialog setting.
+
+           The clipping frame (fixed 1400x990, overflow:hidden) is #canvas-container, NOT
+           #canvas-world — overflow:hidden clips relative to an element's own pre-transform box,
+           so putting the clip on the same element that's being scaled down would shrink the clip
+           region right along with the content, cropping away most of the page. #canvas-container
+           stays an un-transformed, page-sized window; #canvas-world (its already `absolute
+           top-0 left-0` child) is scaled/translated inside it exactly like it's zoomed/panned
+           inside the same container on-screen. */
         @media print {
             @page {
                 size: 1400px 990px;
@@ -109,13 +116,15 @@
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
             }
-            body.printing #canvas-world {
+            body.printing #canvas-container {
                 position: fixed !important;
                 top: 0 !important;
                 left: 0 !important;
                 width: 1400px !important;
                 height: 990px !important;
                 overflow: hidden !important;
+            }
+            body.printing #canvas-world {
                 transition: none !important;
             }
             /* Interactive-only affordances that shouldn't appear in an exported diagram. Toasts
@@ -1509,6 +1518,7 @@
         const PRINT_PAGE_W = 1400;
         const PRINT_PAGE_H = 990;
         const PRINT_CONTENT_MARGIN = 50;
+        let preExportScroll = null;
 
         // Export the whole diagram as a single-page PDF via the browser's native print-to-PDF —
         // no external rendering library needed, and it reuses the exact live DOM/SVG the user is
@@ -1534,17 +1544,31 @@
             const offsetX = (PRINT_PAGE_W - bbox.width * scale) / 2 - bbox.minX * scale;
             const offsetY = (PRINT_PAGE_H - bbox.height * scale) / 2 - bbox.minY * scale;
 
+            // #canvas-container becomes the fixed, page-sized clip frame in print (see the
+            // @media print CSS) — its own on-screen scroll offset would otherwise still shift
+            // what's visible inside that frame, silently cropping the export to whatever
+            // happened to be scrolled into view. Save it and restore after printing.
+            preExportScroll = { left: canvasContainer.scrollLeft, top: canvasContainer.scrollTop };
+            canvasContainer.scrollLeft = 0;
+            canvasContainer.scrollTop = 0;
+
             canvasWorld.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
             document.body.classList.add('printing');
             window.print();
         }
 
         // Fires after the print dialog closes, whether the user actually printed or cancelled —
-        // restores #canvas-world's normal on-screen transform/visibility. Without this the canvas
-        // would be left scaled/offset for print and everything else still hidden.
+        // restores #canvas-world's normal on-screen transform/visibility and #canvas-container's
+        // scroll position. Without this the canvas would be left scaled/offset for print, jumped
+        // to the top-left, and everything else still hidden.
         window.addEventListener('afterprint', () => {
             document.body.classList.remove('printing');
             updateZoomTransform();
+            if (preExportScroll) {
+                canvasContainer.scrollLeft = preExportScroll.left;
+                canvasContainer.scrollTop = preExportScroll.top;
+                preExportScroll = null;
+            }
         });
 
         function handlePaletteDragStart(e, archetypeKey) {
