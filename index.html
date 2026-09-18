@@ -1532,12 +1532,22 @@
         // one of them starts from the exact same pixel and their routes overlap for however long
         // they happen to travel the same way, which is the single biggest cause of two genuinely
         // separate cables reading as one line.
-        function getNodeEdgePoint(center, dx, dy, horizontalFirst, laneOffset) {
+        //
+        // Takes the raw `node` (not a pre-computed center) and works out its own vertical center
+        // using NODE_COLLISION_H rather than NODE_HALF_H — NODE_HALF_H is a deliberately loose
+        // approximation used for the "logical center" that zone containment/access checks rely on
+        // throughout the app (and changing it would risk shifting those), but it undershoots the
+        // card's true rendered height (~117px) badly enough — 46 vs the ~59 half-height actually
+        // needed — that using it here left every cable landing visibly short of the card's real
+        // bottom/top border instead of right on it.
+        function getNodeEdgePoint(node, dx, dy, horizontalFirst, laneOffset) {
             const offset = laneOffset || 0;
+            const cx = node.x + NODE_HALF_W;
+            const cy = node.y + NODE_COLLISION_H / 2;
             if (horizontalFirst) {
-                return { x: center.x + (dx >= 0 ? NODE_HALF_W : -NODE_HALF_W), y: center.y + offset };
+                return { x: cx + (dx >= 0 ? NODE_HALF_W : -NODE_HALF_W), y: cy + offset };
             }
-            return { x: center.x + offset, y: center.y + (dy >= 0 ? NODE_HALF_H : -NODE_HALF_H) };
+            return { x: cx + offset, y: cy + (dy >= 0 ? NODE_COLLISION_H / 2 : -NODE_COLLISION_H / 2) };
         }
 
         // Builds a 3-segment right-angle ("PCB trace") route between two points at a given bend
@@ -1570,15 +1580,39 @@
             return ay >= rect.y && ay <= rect.y + rect.h && hiX >= rect.x && loX <= rect.x + rect.w;
         }
 
+        // How far in from a node's own edge its *own* interior obstacle is inset, in
+        // buildRouteObstacles below — thin enough to leave the rim free for a lane-fanned cable's
+        // own bend right beside the card it just left, thick enough that a route can't cut straight
+        // back through the middle of it on the way somewhere else.
+        const OWN_NODE_INTERIOR_INSET = 20;
+
         // Every node this route's own two endpoints aren't, as a rect — plus every hypervisor
         // cluster zone that doesn't contain either endpoint, as ONE rect covering its whole
         // footprint. A cluster commonly holds several stacked rows of hosts/guests; routing around
         // it as a single block (rather than dodging each VM inside it individually) is both more
         // useful and far cheaper to search.
-        function buildRouteObstacles(n1, n2, allNodes, clusterZones) {
+        //
+        // `includeOwnNodeInterior` (default true) adds the inset interior-only obstacle for n1/n2
+        // themselves — see OWN_NODE_INTERIOR_INSET. It's a refinement, not a correctness
+        // requirement, and in a tight layout it can occasionally box the search in well enough
+        // that no route exists at all (n1/n2's own footprint blocking the only gap through some
+        // other obstacle). Callers that hit that should retry with this off: a route that
+        // legitimately clips its own endpoint's card is a smaller problem than the A* giving up
+        // and falling back to the crude router, which ignores every obstacle indiscriminately.
+        function buildRouteObstacles(n1, n2, allNodes, clusterZones, includeOwnNodeInterior) {
             const obstacles = allNodes
                 .filter(n => n.id !== n1.id && n.id !== n2.id)
                 .map(n => ({ x: n.x, y: n.y, w: NODE_HALF_W * 2, h: NODE_COLLISION_H }));
+            // n1/n2 can't be full obstacles — p1/p2 sit right on their own edge — but leaving them
+            // out entirely let a route leave dx dy then wander back across its own source/dest card
+            // (see the inset interior-only rect: it blocks that without blocking the edge itself).
+            if (includeOwnNodeInterior !== false) {
+                [n1, n2].forEach(n => {
+                    const w = NODE_HALF_W * 2 - OWN_NODE_INTERIOR_INSET * 2;
+                    const h = NODE_COLLISION_H - OWN_NODE_INTERIOR_INSET * 2;
+                    if (w > 0 && h > 0) obstacles.push({ x: n.x + OWN_NODE_INTERIOR_INSET, y: n.y + OWN_NODE_INTERIOR_INSET, w, h });
+                });
+            }
             const c1 = getNodeCenter(n1), c2 = getNodeCenter(n2);
             const inZone = (c, z) => c.x >= z.x && c.x <= z.x + z.width && c.y >= z.y && c.y <= z.y + z.height;
             clusterZones.forEach(z => {
@@ -1805,6 +1839,15 @@
                     for (let gx = gx0; gx <= gx1; gx++) grid[cellIndex(gx, gy)] = 1;
                 }
             };
+            // The zone's name/stat chip floats just above its top edge (see renderZoneElement's
+            // "-top-3" handle) — a horizontal run allowed to hug the top border line the way the
+            // other three edges do would cut straight through that chip's text. This is a *soft*
+            // cost (labelPenaltyGrid below), not a hard block added here: an earlier version hard-
+            // blocked that extra row the same way the border strips do, and it occasionally sealed
+            // off the only route through a tight corridor next to a zone's top edge, forcing a worse
+            // fallback that ignores every obstacle. Discouraging still avoids the chip whenever a
+            // reasonable detour exists, without ever making a route impossible to find.
+            const labelPenaltyGrid = new Uint8Array(gw * gh);
             zones.forEach(z => {
                 const zgx0 = Math.round((z.x - minX) / cell), zgx1 = Math.round((z.x + z.width - minX) / cell);
                 const zgy0 = Math.round((z.y - minY) / cell), zgy1 = Math.round((z.y + z.height - minY) / cell);
@@ -1812,6 +1855,7 @@
                 markStrip(hBlockGrid, zgx0, zgx1, zgy1 - avoidCells, zgy1 + avoidCells); // bottom edge
                 markStrip(vBlockGrid, zgx0 - avoidCells, zgx0 + avoidCells, zgy0, zgy1); // left edge
                 markStrip(vBlockGrid, zgx1 - avoidCells, zgx1 + avoidCells, zgy0, zgy1); // right edge
+                markStrip(labelPenaltyGrid, zgx0, zgx1, zgy0 - 1, zgy0 - 1); // row just above the top edge, where the chip sits
             });
 
             // A soft cost for cells near a path an already-routed *sibling* cable (one sharing an
@@ -1861,7 +1905,8 @@
                     if (!movingHorizontally && vBlockGrid[cellIndex(nx, ny)]) continue;
                     const turnCost = (cur.d !== -1 && cur.d !== di) ? GRID_TURN_PENALTY : 0;
                     const siblingCost = (siblingPenaltyGrid && siblingPenaltyGrid[cellIndex(nx, ny)]) ? SIBLING_AVOID_PENALTY : 0;
-                    const tentativeG = cur.g + 1 + turnCost + siblingCost;
+                    const labelCost = (movingHorizontally && labelPenaltyGrid[cellIndex(nx, ny)]) ? SIBLING_AVOID_PENALTY : 0;
+                    const tentativeG = cur.g + 1 + turnCost + siblingCost + labelCost;
                     const nKey = key(nx, ny, di);
                     const existing = records.get(nKey);
                     if (!existing || tentativeG < existing.g) {
@@ -1946,8 +1991,15 @@
         // plain sharp-cornered polyline — the logical route used for collision/badge/hop-crossing
         // math; rendering (rounded corners, crossing hops) is a separate cosmetic pass in
         // buildDecoratedPathD() below, kept off this shape so that math stays simple.
-        function findBestRoute(p1, p2, horizontalFirst, obstacles, zones, siblingSegments) {
-            const gridPoints = findGridPath(p1, p2, obstacles, zones, siblingSegments);
+        //
+        // `relaxedObstacles` (optional) is tried if `obstacles` finds nothing — see
+        // buildRouteObstacles' includeOwnNodeInterior note: it's the same obstacle set with the
+        // endpoints' own-card refinement dropped, for the rare case that refinement is exactly
+        // what boxed the search in. Falling further to findClearRoute skips every obstacle
+        // (cluster zones included), so it's worth one more real A* attempt before giving up to that.
+        function findBestRoute(p1, p2, horizontalFirst, obstacles, zones, siblingSegments, relaxedObstacles) {
+            let gridPoints = findGridPath(p1, p2, obstacles, zones, siblingSegments);
+            if (!gridPoints && relaxedObstacles) gridPoints = findGridPath(p1, p2, relaxedObstacles, zones, siblingSegments);
             const points = gridPoints ? simplifyOrthogonalPath(gridPoints) : findClearRoute(p1, p2, horizontalFirst, obstacles, zones).points;
             return { points, d: pointsToPathD(points), ...pathMidpoint(points) };
         }
@@ -2081,16 +2133,27 @@
         // cables both happen to attach to — not an incidental crossing in open space.
         function findCableCrossingHops(routed) {
             const hopsByIndex = new Map();
-            const nearAnyEndpoint = (pt, entry) => [entry.p1, entry.p2].some(ep => Math.abs(ep.x - pt.x) < 2 && Math.abs(ep.y - pt.y) < 2);
+            // Compare against the route's *actual* first/last drawn points, not its ideal p1/p2
+            // anchor — the A* grid snaps the real path onto grid cells, so the drawn start/end can
+            // land several px from the ideal anchor. Checking against p1/p2 let a crossing that sits
+            // exactly on a sibling's real starting point slip through as "not near an endpoint",
+            // drawing a pointless hop loop right where two cables leave the same node.
+            const nearAnyEndpoint = (pt, entry) => [entry.points[0], entry.points[entry.points.length - 1]].some(ep => Math.abs(ep.x - pt.x) < 6 && Math.abs(ep.y - pt.y) < 6);
             // Several sibling cables (e.g. everything fanning out from one switch) often funnel
             // through the same detour and end up crossing at, or extremely near, the same physical
             // point multiple times over — once per pair that happens to meet there. Without
             // deduplicating, that spot would get one overlapping loop per pair instead of one loop
             // total, which reads as far messier than the plain crossing it's meant to clarify.
+            // The threshold is wider than a single physical point on purpose: lane-offset siblings
+            // are spaced ~18px apart (see computeLaneOffsets), so a run of them crossing the same
+            // perpendicular cable produces hop centers only ~18px apart too — just far enough for
+            // "same point" dedup to miss, but too close for each to get its own loop without the
+            // loops running into each other. Folding those into one loop (at the first crossing's
+            // spot) reads as "several cables cross here," which is what's actually happening.
             const addHop = (j, pt) => {
                 if (!hopsByIndex.has(j)) hopsByIndex.set(j, []);
                 const list = hopsByIndex.get(j);
-                if (list.some(h => Math.abs(h.x - pt.x) < 3 && Math.abs(h.y - pt.y) < 3)) return;
+                if (list.some(h => Math.abs(h.x - pt.x) < 22 && Math.abs(h.y - pt.y) < 22)) return;
                 list.push(pt);
             };
             for (let i = 0; i < routed.length; i++) {
@@ -2163,8 +2226,8 @@
                 // Edge-anchor both routing modes so the cable stops at the card boundary instead
                 // of drawing across its own endpoint's icon/label, fanned out (laneOffsets) if this
                 // node has other cables sharing the same side.
-                const p1 = getNodeEdgePoint(c1, dx, dy, horizontalFirst, laneOffsets && laneOffsets.get(`${connIndex}:from`));
-                const p2 = getNodeEdgePoint(c2, -dx, -dy, horizontalFirst, laneOffsets && laneOffsets.get(`${connIndex}:to`));
+                const p1 = getNodeEdgePoint(n1, dx, dy, horizontalFirst, laneOffsets && laneOffsets.get(`${connIndex}:from`));
+                const p2 = getNodeEdgePoint(n2, -dx, -dy, horizontalFirst, laneOffsets && laneOffsets.get(`${connIndex}:to`));
                 const cfg = CABLE_CONFIGS[conn.type] || CABLE_CONFIGS.fiber;
                 const isSelected = state.selectedConnectionId === conn.id;
                 const connVlans = conn.vlanIds || [];
@@ -2173,7 +2236,7 @@
                 const route = orthogonal
                     ? (fast
                         ? findClearRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones)
-                        : findBestRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones, collectSiblingSegments(n1, n2, routed)))
+                        : findBestRoute(p1, p2, horizontalFirst, buildRouteObstacles(n1, n2, allNodes, clusterZones), allZones, collectSiblingSegments(n1, n2, routed), buildRouteObstacles(n1, n2, allNodes, clusterZones, false)))
                     : null;
 
                 routed.push({ conn, p1, p2, cfg, isSelected, connVlans, isDimmed, route, points: route ? route.points : [p1, p2] });
