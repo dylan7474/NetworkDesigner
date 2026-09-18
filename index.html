@@ -1526,12 +1526,17 @@
         // Where a cable should leave/enter a node's card: on the edge facing the other endpoint
         // (whichever side the route's primary axis points to), not the card's center — so the
         // visible cable stops at the card boundary instead of visually cutting across its own
-        // endpoint. `dx`/`dy` is the direction FROM this node TOWARD the other one. `laneOffset`
-        // (see computeLaneOffsets()) slides the point along that same edge, away from the card's
-        // midpoint, for a node with several cables leaving/entering the same side — otherwise every
-        // one of them starts from the exact same pixel and their routes overlap for however long
-        // they happen to travel the same way, which is the single biggest cause of two genuinely
-        // separate cables reading as one line.
+        // endpoint. `dx`/`dy` is the direction FROM this node TOWARD the other one.
+        //
+        // Always the exact center of that side — one fixed "pin" per side, the same point no
+        // matter how many other cables also leave/enter there, deliberately mirroring a schematic
+        // symbol's leads (a resistor's pin is always in the same place, whether or not anything
+        // else is on the board). An earlier version fanned multiple cables sharing a side out
+        // across it (computeLaneOffsets(), now removed) so they wouldn't all start from the exact
+        // same pixel — but that meant a cable's own attach point shifted depending on what *else*
+        // happened to be wired to that side, which is the opposite of a fixed pin. Cables sharing a
+        // pin now separate visually a short distance out instead, via the router's sibling-avoidance
+        // cost (SIBLING_AVOID_PENALTY / collectSiblingSegments()) rather than a pre-set offset.
         //
         // Takes the raw `node` (not a pre-computed center) and works out its own vertical center
         // using NODE_COLLISION_H rather than NODE_HALF_H — NODE_HALF_H is a deliberately loose
@@ -1540,14 +1545,13 @@
         // card's true rendered height (~117px) badly enough — 46 vs the ~59 half-height actually
         // needed — that using it here left every cable landing visibly short of the card's real
         // bottom/top border instead of right on it.
-        function getNodeEdgePoint(node, dx, dy, horizontalFirst, laneOffset) {
-            const offset = laneOffset || 0;
+        function getNodeEdgePoint(node, dx, dy, horizontalFirst) {
             const cx = node.x + NODE_HALF_W;
             const cy = node.y + NODE_COLLISION_H / 2;
             if (horizontalFirst) {
-                return { x: cx + (dx >= 0 ? NODE_HALF_W : -NODE_HALF_W), y: cy + offset };
+                return { x: cx + (dx >= 0 ? NODE_HALF_W : -NODE_HALF_W), y: cy };
             }
-            return { x: cx + offset, y: cy + (dy >= 0 ? NODE_COLLISION_H / 2 : -NODE_COLLISION_H / 2) };
+            return { x: cx, y: cy + (dy >= 0 ? NODE_COLLISION_H / 2 : -NODE_COLLISION_H / 2) };
         }
 
         // Builds a 3-segment right-angle ("PCB trace") route between two points at a given bend
@@ -2077,43 +2081,6 @@
             return d;
         }
 
-        const LANE_SPACING = 18; // how far apart sibling cables fan out along a shared edge
-
-        // Groups every connection endpoint by (node, exit side) — the side being whichever the
-        // same horizontalFirst/dx/dy logic renderConnections() uses for edge-anchoring, so this
-        // always agrees with where a cable will actually leave from. A group with 2+ members means
-        // that many cables leave/enter that exact side of that exact node; each gets its own lane
-        // offset (members ordered by direction to their *other* endpoint, so the fan-out matches
-        // the order they'll naturally spread apart in, rather than an arbitrary one that would
-        // cross right at the card edge) via getNodeEdgePoint()'s laneOffset — centered on 0, so a
-        // lone connection at a side is untouched. Returns a Map keyed `${connIndex}:${end}` (end is
-        // 'from' or 'to') to an offset in px.
-        function computeLaneOffsets(connections, nodesById) {
-            const groups = new Map();
-            connections.forEach((conn, idx) => {
-                const n1 = nodesById[conn.from], n2 = nodesById[conn.to];
-                if (!n1 || !n2) return;
-                const c1 = getNodeCenter(n1), c2 = getNodeCenter(n2);
-                const dx = c2.x - c1.x, dy = c2.y - c1.y;
-                const horizontalFirst = Math.abs(dy) < NODE_COLLISION_H;
-                const side1 = horizontalFirst ? (dx >= 0 ? 'R' : 'L') : (dy >= 0 ? 'B' : 'T');
-                const side2 = horizontalFirst ? (dx >= 0 ? 'L' : 'R') : (dy >= 0 ? 'T' : 'B');
-                const key1 = `${n1.id}:${side1}`, key2 = `${n2.id}:${side2}`;
-                if (!groups.has(key1)) groups.set(key1, []);
-                groups.get(key1).push({ connIndex: idx, end: 'from', angle: Math.atan2(dy, dx) });
-                if (!groups.has(key2)) groups.set(key2, []);
-                groups.get(key2).push({ connIndex: idx, end: 'to', angle: Math.atan2(-dy, -dx) });
-            });
-            const offsets = new Map();
-            groups.forEach(members => {
-                if (members.length < 2) return; // default (no entry) reads as 0 offset
-                members.sort((a, b) => a.angle - b.angle);
-                const n = members.length;
-                members.forEach((m, i) => offsets.set(`${m.connIndex}:${m.end}`, (i - (n - 1) / 2) * LANE_SPACING));
-            });
-            return offsets;
-        }
-
         // True perpendicular intersection of two axis-aligned segments (one horizontal, one
         // vertical) — parallel/collinear segments never "cross" in the sense this is used for, so
         // they're deliberately not handled here.
@@ -2144,12 +2111,13 @@
             // point multiple times over — once per pair that happens to meet there. Without
             // deduplicating, that spot would get one overlapping loop per pair instead of one loop
             // total, which reads as far messier than the plain crossing it's meant to clarify.
-            // The threshold is wider than a single physical point on purpose: lane-offset siblings
-            // are spaced ~18px apart (see computeLaneOffsets), so a run of them crossing the same
-            // perpendicular cable produces hop centers only ~18px apart too — just far enough for
-            // "same point" dedup to miss, but too close for each to get its own loop without the
-            // loops running into each other. Folding those into one loop (at the first crossing's
-            // spot) reads as "several cables cross here," which is what's actually happening.
+            // The threshold is wider than a single physical point on purpose: several sibling
+            // cables sharing a pin (see getNodeEdgePoint) only separate gradually as the router
+            // routes them apart, so a run of them crossing the same perpendicular cable can produce
+            // hop centers within a couple dozen px of each other — just far enough for "same point"
+            // dedup to miss, but too close for each to get its own loop without the loops running
+            // into each other. Folding those into one loop (at the first crossing's spot) reads as
+            // "several cables cross here," which is what's actually happening.
             const addHop = (j, pt) => {
                 if (!hopsByIndex.has(j)) hopsByIndex.set(j, []);
                 const list = hopsByIndex.get(j);
@@ -2204,10 +2172,7 @@
 
             // Phase 1: route every connection first (don't render yet) — crossing-hop detection
             // needs every cable's full route up front to find where two *different* cables' paths
-            // actually cross, which isn't knowable one connection at a time. Lane offsets (which
-            // side-slot each cable leaves/enters from) are computed up front for the same reason:
-            // they depend on how many *other* connections share that node+side.
-            const laneOffsets = orthogonal ? computeLaneOffsets(state.connections, state.nodes) : null;
+            // actually cross, which isn't knowable one connection at a time.
             const routed = [];
             state.connections.forEach((conn, connIndex) => {
                 const n1 = state.nodes[conn.from];
@@ -2224,10 +2189,11 @@
                 // also happens to run far sideways out through the top/bottom instead.
                 const horizontalFirst = Math.abs(dy) < NODE_COLLISION_H;
                 // Edge-anchor both routing modes so the cable stops at the card boundary instead
-                // of drawing across its own endpoint's icon/label, fanned out (laneOffsets) if this
-                // node has other cables sharing the same side.
-                const p1 = getNodeEdgePoint(n1, dx, dy, horizontalFirst, laneOffsets && laneOffsets.get(`${connIndex}:from`));
-                const p2 = getNodeEdgePoint(n2, -dx, -dy, horizontalFirst, laneOffsets && laneOffsets.get(`${connIndex}:to`));
+                // of drawing across its own endpoint's icon/label — always that side's exact
+                // center (see getNodeEdgePoint's own comment for why it's a fixed pin, not fanned
+                // out across the side).
+                const p1 = getNodeEdgePoint(n1, dx, dy, horizontalFirst);
+                const p2 = getNodeEdgePoint(n2, -dx, -dy, horizontalFirst);
                 const cfg = CABLE_CONFIGS[conn.type] || CABLE_CONFIGS.fiber;
                 const isSelected = state.selectedConnectionId === conn.id;
                 const connVlans = conn.vlanIds || [];
