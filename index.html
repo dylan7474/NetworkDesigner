@@ -1980,9 +1980,10 @@
             return path;
         }
 
-        // Collapses consecutive collinear points (a straight run the grid search took multiple
-        // steps to produce) into single segments, and drops any accidental zero-length step.
-        function simplifyOrthogonalPath(points) {
+        // One dedupe-then-merge pass: collapses consecutive collinear points (a straight run the
+        // grid search took multiple steps to produce) into single segments, and drops any
+        // accidental zero-length step.
+        function simplifyOrthogonalPathPass(points) {
             const deduped = points.filter((p, i) => i === 0 || p.x !== points[i - 1].x || p.y !== points[i - 1].y);
             if (deduped.length < 3) return deduped;
             const simplified = [deduped[0]];
@@ -1996,6 +1997,25 @@
             }
             simplified.push(deduped[deduped.length - 1]);
             return simplified;
+        }
+
+        // Repeats the pass above until it stops changing anything. One pass alone can leave a
+        // fresh problem behind: dropping a point whose surrounding segments turned out collinear
+        // (a "fake corner") can leave the points on either side of it newly *adjacent and
+        // identical* — a zero-length step the same as the ones the first pass's own dedupe already
+        // handles, just created too late for that same pass to catch. Findable case: a route whose
+        // p1/p2 endpoints get spliced in with the axis-correction in findBestRoute() (see there) can
+        // produce exactly this — a short "there and back" detour that collapses down to nothing.
+        // Converges in at most a couple of passes in practice; three is a safety margin, not a
+        // tuned limit.
+        function simplifyOrthogonalPath(points) {
+            let current = points;
+            for (let pass = 0; pass < 3; pass++) {
+                const next = simplifyOrthogonalPathPass(current);
+                if (next.length === current.length) return next;
+                current = next;
+            }
+            return current;
         }
 
         // The point at a given fraction (default half) of the route's total (Manhattan) length —
@@ -2062,6 +2082,38 @@
             return points.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`).join(' ');
         }
 
+        // How far a route must travel straight out from a pin, in the pin's own exit direction,
+        // before the router is allowed to bend — a resistor's lead doesn't turn the instant it
+        // leaves the component body, and neither should a cable. Without this, the A* grid search
+        // is completely free to bend on its very first step, and since it optimizes total cost (not
+        // "looks like a deliberate lead-out"), it very often does: on the reference design, 19 of 34
+        // connections' first rendered segment ran in the *wrong axis* entirely for the pin it left —
+        // e.g. a bottom-exit pin's first visible move was sideways, not down — because the search's
+        // own real first move (down, per the pin) collapsed to near-zero length and vanished in
+        // simplifyOrthogonalPath(), leaving the very next (perpendicular) segment looking like the
+        // start. Forcing genuine travel in the mandated direction first prevents that entirely.
+        //
+        // Several lengths, tried longest first: this app's seeded layouts often pack same-row cards
+        // only ~30px apart, so a single fixed stub either overshoots into whatever's right next
+        // door constantly, or has to be short enough that it barely reads as a stub at all. Falling
+        // back to a shorter one (down to a single grid cell) still reads as a deliberate lead-out in
+        // a tight spot; only truly cramped placements fall back to no stub at all.
+        const PIN_STUB_LENGTHS = [36, 24, 12];
+
+        function pointInAnyObstacle(pt, obstacles) {
+            return obstacles.some(o => pt.x >= o.x && pt.x <= o.x + o.w && pt.y >= o.y && pt.y <= o.y + o.h);
+        }
+
+        // The longest stub point (see PIN_STUB_LENGTHS) that doesn't land inside an obstacle, or
+        // null if even the shortest one doesn't fit.
+        function findPinStub(p, dirX, dirY, obstacles) {
+            for (const len of PIN_STUB_LENGTHS) {
+                const stub = { x: p.x + dirX * len, y: p.y + dirY * len };
+                if (!pointInAnyObstacle(stub, obstacles)) return stub;
+            }
+            return null;
+        }
+
         // Full route for a connection: real A* pathfinding when possible, falling back to the fast
         // heuristic router (which always returns something) if the grid search fails outright —
         // e.g. both endpoints boxed in by obstacles within the search margin. `points` stays the
@@ -2075,9 +2127,63 @@
         // what boxed the search in. Falling further to findClearRoute skips every obstacle
         // (cluster zones included), so it's worth one more real A* attempt before giving up to that.
         function findBestRoute(p1, p2, horizontalFirst, obstacles, zones, siblingSegments, relaxedObstacles) {
-            let gridPoints = findGridPath(p1, p2, obstacles, zones, siblingSegments);
-            if (!gridPoints && relaxedObstacles) gridPoints = findGridPath(p1, p2, relaxedObstacles, zones, siblingSegments);
-            const points = gridPoints ? simplifyOrthogonalPath(gridPoints) : findClearRoute(p1, p2, horizontalFirst, obstacles, zones).points;
+            // p1/p2 are already anchored on the correct side of each node (getNodeEdgePoint), so the
+            // direction from p1 toward p2 (and its reverse, arriving at p2) is each pin's own
+            // mandated exit direction — search from a point already stubbed out along it, rather
+            // than from the pin itself, so the search's own path can't collapse that lead-out away.
+            // Falls back to searching from the bare pin only if no stub length fits at all.
+            const dirX = horizontalFirst ? Math.sign(p2.x - p1.x) || 1 : 0;
+            const dirY = horizontalFirst ? 0 : Math.sign(p2.y - p1.y) || 1;
+            const stubP1 = findPinStub(p1, dirX, dirY, obstacles);
+            const stubP2 = findPinStub(p2, -dirX, -dirY, obstacles);
+            const searchP1 = stubP1 || p1;
+            const searchP2 = stubP2 || p2;
+
+            let gridPoints = findGridPath(searchP1, searchP2, obstacles, zones, siblingSegments);
+            if (!gridPoints && relaxedObstacles) gridPoints = findGridPath(searchP1, searchP2, relaxedObstacles, zones, siblingSegments);
+
+            let points;
+            if (gridPoints) {
+                // The grid search snaps x and y independently, so the "other" axis (the one that's
+                // supposed to stay exactly on the pin, stub or no stub) can drift by up to half a
+                // grid cell once snapped. Pin it back to the pin's own exact coordinate before
+                // splicing the pin itself onto the front/back of the path — unconditionally, not
+                // just when a stub was used, since without this correction prepending the pin's
+                // exact point creates a barely-visible *diagonal* sliver against the plain
+                // grid-snapped one it used to start from instead.
+                //
+                // The whole leading run has to move together, not just gridPoints[0]: if the
+                // search's first *several* points continue straight (a multi-cell run before its
+                // first real turn), they all share that same drifted coordinate, and correcting
+                // only the first one would leave it misaligned with the very next point instead —
+                // trading one diagonal sliver for another right next to it. Same for the trailing
+                // run approaching p2. Both runs are measured against the *original* (pre-correction)
+                // values and bounded so they can never cross — if the whole path turns out to be one
+                // uniform run (short enough that both would otherwise overlap), the leading
+                // correction wins outright and the trailing pin is left to the final splice's own
+                // short adjustment segment into p2, which is correct, not a bug.
+                const axisKey = horizontalFirst ? 'y' : 'x';
+                const leadFixed = horizontalFirst ? p1.y : p1.x;
+                const trailFixed = horizontalFirst ? p2.y : p2.x;
+                const original = gridPoints.map(pt => pt[axisKey]);
+
+                let leadEnd = 0;
+                while (leadEnd < gridPoints.length && original[leadEnd] === original[0]) leadEnd++;
+                for (let i = 0; i < leadEnd; i++) {
+                    gridPoints[i] = horizontalFirst ? { x: gridPoints[i].x, y: leadFixed } : { x: leadFixed, y: gridPoints[i].y };
+                }
+
+                let trailStart = gridPoints.length - 1;
+                while (trailStart >= leadEnd && original[trailStart] === original[gridPoints.length - 1]) trailStart--;
+                trailStart++;
+                for (let i = trailStart; i < gridPoints.length; i++) {
+                    gridPoints[i] = horizontalFirst ? { x: gridPoints[i].x, y: trailFixed } : { x: trailFixed, y: gridPoints[i].y };
+                }
+
+                points = simplifyOrthogonalPath([p1, ...gridPoints, p2]);
+            } else {
+                points = findClearRoute(p1, p2, horizontalFirst, obstacles, zones).points;
+            }
             return { points, d: pointsToPathD(points), ...findBadgeAnchor(points, zones) };
         }
 
