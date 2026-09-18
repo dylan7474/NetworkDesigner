@@ -117,10 +117,6 @@
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
                 <span>Cable Link</span>
             </button>
-            <button id="tool-zone" onclick="setInteractionMode('zone')" title="Draw a Purdue / Security Zone" class="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all text-slate-400 hover:text-slate-200">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 3"></rect></svg>
-                <span>Zone</span>
-            </button>
             <!-- Cable Type Selector -->
             <div class="h-4 w-px bg-slate-800 my-auto"></div>
             <select id="cable-type-select" onchange="updateCableType(this.value)" class="bg-slate-900 text-slate-300 text-xs rounded border border-slate-700 px-2 py-1 focus:outline-none focus:border-brand-500 cursor-pointer">
@@ -176,10 +172,23 @@
                 <input type="file" id="import-file" accept=".json" class="hidden" onchange="importTopologyJSON(event)">
             </label>
 
-            <button onclick="confirmLoadRecommendedDesign()" title="Replace the canvas with a curated reference architecture" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium flex items-center gap-1.5 transition">
-                <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
-                <span>Recommended Design</span>
-            </button>
+            <div class="relative">
+                <button onclick="toggleRecommendedDesignMenu(event)" title="Replace the canvas with a curated reference architecture" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-200 font-medium flex items-center gap-1.5 transition">
+                    <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                    <span>Recommended Design</span>
+                    <svg class="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </button>
+                <div id="recommended-design-menu" class="hidden absolute left-0 top-full mt-1 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-30 overflow-hidden">
+                    <button onclick="confirmLoadRecommendedDesign(); closeRecommendedDesignMenu();" class="w-full text-left px-3 py-2.5 hover:bg-slate-700 transition border-b border-slate-700/70">
+                        <div class="text-xs font-semibold text-slate-100">Single-Site (Full Detail)</div>
+                        <div class="text-[10.5px] text-slate-400 mt-0.5">One site, Level 5→0, dual hypervisor clusters</div>
+                    </button>
+                    <button onclick="confirmLoadMultiSiteDesign(); closeRecommendedDesignMenu();" class="w-full text-left px-3 py-2.5 hover:bg-slate-700 transition">
+                        <div class="text-xs font-semibold text-slate-100">Multi-Site (Shared IDMZ)</div>
+                        <div class="text-[10.5px] text-slate-400 mt-0.5">3 sites, shared Enterprise + Industrial DMZ, no direct site-to-site routing</div>
+                    </button>
+                </div>
+            </div>
 
             <button onclick="confirmClearWorkspace()" class="px-2.5 py-1.5 bg-red-950/40 hover:bg-red-900/60 border border-red-800/50 rounded-lg text-xs text-red-300 font-medium flex items-center gap-1 transition" title="Clear Design">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
@@ -200,6 +209,10 @@
         <button onclick="openFirewallMatrix()" title="Generate a cross-zone traffic rule matrix from the current design (documentation aid, not a deployable config)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md text-[11px] text-slate-200 font-medium flex items-center gap-1.5 transition shrink-0">
             <svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
             <span>Firewall Rules</span>
+        </button>
+        <button onclick="openDesignNotes()" title="Free-text design notes plus an auto-generated VLAN reference table" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md text-[11px] text-slate-200 font-medium flex items-center gap-1.5 transition shrink-0">
+            <svg class="w-3.5 h-3.5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            <span>Design Notes</span>
         </button>
         <div class="flex-1"></div>
         <button onclick="copyShareLink()" title="Copy a link that reproduces this exact design for someone else to open (snapshot, not live sync)" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md text-[11px] text-purple-300 font-medium flex items-center gap-1.5 transition shrink-0">
@@ -457,6 +470,63 @@
                                 <div class="text-[10px] text-slate-400 truncate">Clean-agent room flood system</div>
                             </div>
                         </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'pump')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-blue-950/60 border border-blue-400/30 flex items-center justify-center text-blue-300 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="10" cy="12" r="7"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 8l3 4-3 4M17 12h4"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Pump / Motor</div>
+                                <div class="text-[10px] text-slate-400 truncate">Process/cooling circulation pump</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Category: Industrial Control -->
+                <div>
+                    <h3 class="text-[11px] font-semibold text-orange-400 tracking-wider uppercase mb-2">Industrial Control</h3>
+                    <div class="space-y-1.5">
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'plc')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-amber-950/60 border border-amber-400/30 flex items-center justify-center text-amber-300 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"></rect><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 2v3M12 2v3M15 2v3M9 19v3M12 19v3M15 19v3M2 9h3M2 12h3M2 15h3M19 9h3M19 12h3M19 15h3"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Controller / PLC</div>
+                                <div class="text-[10px] text-slate-400 truncate">Programmable logic / RTU controller</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'iomodule')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-orange-950/60 border border-orange-400/30 flex items-center justify-center text-orange-300 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="10" rx="1"></rect><line x1="6" y1="19" x2="6" y2="15"></line><line x1="10" y1="19" x2="10" y2="15"></line><line x1="14" y1="19" x2="14" y2="15"></line><line x1="18" y1="19" x2="18" y2="15"></line></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">I/O Module</div>
+                                <div class="text-[10px] text-slate-400 truncate">Digital/analog fieldbus I/O</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'fieldswitch')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-amber-950/60 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="3" rx="1"></rect><rect x="2" y="8" width="20" height="10" rx="2"></rect><circle cx="6" cy="13" r="1.3"></circle><circle cx="10" cy="13" r="1.3"></circle><circle cx="14" cy="13" r="1.3"></circle><circle cx="18" cy="13" r="1.3"></circle></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Field Switch (DIN-Rail)</div>
+                                <div class="text-[10px] text-slate-400 truncate">Ruggedized industrial switch</div>
+                            </div>
+                        </div>
+
+                        <div draggable="true" ondragstart="handlePaletteDragStart(event, 'drive')" class="palette-card group p-2.5 bg-slate-800/80 hover:bg-slate-750 border border-slate-700/60 hover:border-indigo-500 rounded-lg cursor-grab active:cursor-grabbing transition flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-fuchsia-950/60 border border-fuchsia-400/30 flex items-center justify-center text-fuchsia-300 group-hover:scale-105 transition-transform">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 14c1.5-4 3-4 4.5 0s3 4 4.5 0 3-4 4.5 0"></path></svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-xs font-medium text-slate-200">Drive / VFD</div>
+                                <div class="text-[10px] text-slate-400 truncate">Variable frequency motor drive</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -562,7 +632,7 @@
         <!-- CENTER WORKSPACE: Grid Canvas & Cable Lines -->
         <main id="canvas-container" class="flex-1 h-full overflow-auto relative grid-canvas focus:outline-none" tabindex="0">
             <!-- Scalable World Frame -->
-            <div id="canvas-world" class="absolute top-0 left-0 w-[3600px] h-[3200px] origin-top-left transition-transform duration-75">
+            <div id="canvas-world" class="absolute top-0 left-0 w-[4800px] h-[3600px] origin-top-left transition-transform duration-75">
 
                 <!-- Purdue / Security Zone Backgrounds (drawn behind cables and nodes) -->
                 <div id="zones-container" class="absolute top-0 left-0 w-full h-full z-0 pointer-events-none"></div>
@@ -708,6 +778,43 @@
             <div class="pt-3 flex gap-2 shrink-0">
                 <button onclick="exportFirewallMatrixCSV()" class="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-xs text-slate-200 font-medium transition">Export CSV</button>
                 <button onclick="closeFirewallMatrix()" class="flex-1 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded text-xs font-medium transition">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Design Notes Modal -->
+    <div id="notes-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center hidden">
+        <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full p-5 shadow-2xl mx-4 max-h-[85vh] flex flex-col">
+            <div class="flex items-center justify-between mb-1 shrink-0">
+                <h4 class="font-semibold text-sm text-white">Design Notes</h4>
+                <button onclick="closeDesignNotes()" class="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <p class="text-[10px] text-slate-500 mb-3">Free-text design rationale, key design principles, and any caveats worth documenting alongside the diagram — saved with the rest of this design.</p>
+
+            <div class="overflow-y-auto flex-1 space-y-4">
+                <textarea id="design-notes-textarea" oninput="updateDesignNotes(this.value)" rows="8" placeholder="e.g. Key Design Principles: no direct site-to-site routing — all cross-site traffic transits the shared Industrial DMZ..." class="w-full bg-slate-800 text-xs text-slate-200 px-3 py-2 rounded border border-slate-700 focus:border-brand-500 focus:outline-none resize-y"></textarea>
+
+                <div>
+                    <span class="text-[10px] text-slate-400 uppercase font-semibold">VLAN Reference (auto-generated)</span>
+                    <div class="mt-1.5 overflow-auto border border-slate-800 rounded-lg">
+                        <table class="w-full text-[11px] border-collapse">
+                            <thead class="sticky top-0 bg-slate-800 text-slate-400">
+                                <tr class="text-left">
+                                    <th class="py-1.5 px-2 font-semibold">VLAN ID</th>
+                                    <th class="py-1.5 px-2 font-semibold">Name</th>
+                                    <th class="py-1.5 px-2 font-semibold">Subnet</th>
+                                </tr>
+                            </thead>
+                            <tbody id="design-notes-vlan-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pt-3 flex gap-2 shrink-0">
+                <button onclick="closeDesignNotes()" class="flex-1 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded text-xs font-medium transition">Close</button>
             </div>
         </div>
     </div>
@@ -978,6 +1085,51 @@
                 powerKW: 0,
                 defaultPorts: 1,
                 specs: { accessMethod: 'VPN / Direct Login', department: 'IT Operations' }
+            },
+            pump: {
+                name: 'Pump / Motor',
+                category: 'facility',
+                icon: '<svg class="w-5 h-5 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="10" cy="12" r="7"></circle><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 8l3 4-3 4M17 12h4"></path></svg>',
+                color: 'border-blue-400/50 bg-slate-900',
+                powerKW: 15.0,
+                defaultPorts: 2,
+                specs: { flowRate: '450 GPM', head: '120 ft TDH', motorHP: '75 HP' }
+            },
+            plc: {
+                name: 'Controller / PLC',
+                category: 'control',
+                icon: '<svg class="w-5 h-5 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"></rect><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 2v3M12 2v3M15 2v3M9 19v3M12 19v3M15 19v3M2 9h3M2 12h3M2 15h3M19 9h3M19 12h3M19 15h3"></path></svg>',
+                color: 'border-amber-400/50 bg-slate-900',
+                powerKW: 0.15,
+                defaultPorts: 8,
+                specs: { cpuType: 'Modular PLC / RTU', scanCycle: '10 ms', ioCount: '128 DI/DO' }
+            },
+            iomodule: {
+                name: 'I/O Module',
+                category: 'control',
+                icon: '<svg class="w-5 h-5 text-orange-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="10" rx="1"></rect><line x1="6" y1="19" x2="6" y2="15"></line><line x1="10" y1="19" x2="10" y2="15"></line><line x1="14" y1="19" x2="14" y2="15"></line><line x1="18" y1="19" x2="18" y2="15"></line></svg>',
+                color: 'border-orange-400/50 bg-slate-900',
+                powerKW: 0.05,
+                defaultPorts: 16,
+                specs: { ioType: 'Digital/Analog I/O', channels: '16 Channels', busProtocol: 'Fieldbus (Profibus/Modbus)' }
+            },
+            fieldswitch: {
+                name: 'Field Switch (DIN-Rail)',
+                category: 'network',
+                icon: '<svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="3" rx="1"></rect><rect x="2" y="8" width="20" height="10" rx="2"></rect><circle cx="6" cy="13" r="1.3"></circle><circle cx="10" cy="13" r="1.3"></circle><circle cx="14" cy="13" r="1.3"></circle><circle cx="18" cy="13" r="1.3"></circle></svg>',
+                color: 'border-amber-500/50 bg-slate-900',
+                powerKW: 0.3,
+                defaultPorts: 8,
+                specs: { mounting: 'DIN-Rail Industrial', tempRating: '-40°C to 75°C', redundancy: 'Ring/RSTP' }
+            },
+            drive: {
+                name: 'Drive / VFD',
+                category: 'control',
+                icon: '<svg class="w-5 h-5 text-fuchsia-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 14c1.5-4 3-4 4.5 0s3 4 4.5 0 3-4 4.5 0"></path></svg>',
+                color: 'border-fuchsia-400/50 bg-slate-900',
+                powerKW: 5.0,
+                defaultPorts: 2,
+                specs: { driveType: 'Variable Frequency Drive', ratedPower: '55 kW', controlMode: 'Vector / Sensorless' }
             }
         };
 
@@ -1103,10 +1255,11 @@
             zoom: 1.0,
             showPalette: true, // left/right panel visibility — view preferences, not persisted in saved designs, same as zoom/cableRouting above
             showInspector: true,
-            mode: 'select', // 'select', 'connect', or 'zone'
+            mode: 'select', // 'select' or 'connect' — there is no dedicated 'zone' mode; drawing a zone is a click-drag gesture available directly within 'select' mode (see AGENT.md)
             activeCableType: 'fiber',
             connectingSourceId: null,
-            highlightVlanId: null
+            highlightVlanId: null,
+            designNotes: ''
         };
 
         // Cache DOM elements
@@ -1120,7 +1273,6 @@
         const inspectorBadge = document.getElementById('inspector-badge');
         const toolSelectBtn = document.getElementById('tool-select');
         const toolConnectBtn = document.getElementById('tool-connect');
-        const toolZoneBtn = document.getElementById('tool-zone');
         const snapBtn = document.getElementById('btn-snap');
         const routingBtn = document.getElementById('btn-routing');
         const palettePanel = document.getElementById('palette-panel');
@@ -1151,7 +1303,8 @@
                     counter: state.counter,
                     zoneCounter: state.zoneCounter,
                     cableCounter: state.cableCounter,
-                    ruleCounter: state.ruleCounter
+                    ruleCounter: state.ruleCounter,
+                    designNotes: state.designNotes || ''
                 }
             };
         }
@@ -1201,11 +1354,9 @@
             const idle = `${base} text-slate-400 hover:text-slate-200`;
             toolSelectBtn.className = mode === 'select' ? `${base} bg-brand-600 text-white shadow-sm` : idle;
             toolConnectBtn.className = mode === 'connect' ? `${base} bg-pink-600 text-white shadow-sm` : idle;
-            toolZoneBtn.className = mode === 'zone' ? `${base} bg-amber-600 text-white shadow-sm` : idle;
 
             if (mode !== 'connect') cancelDraftConnection();
             if (mode === 'connect') showToast('Link Mode: Click a source device, then click destination', 'info');
-            if (mode === 'zone') showToast('Zone Mode: Click and drag on the canvas to draw a Purdue/security zone', 'info');
         }
 
         function updateCableType(type) {
@@ -1255,9 +1406,51 @@
             updateZoomTransform();
         }
 
+        // "Fit" — actually fits the whole diagram in the viewport, rather than just resetting to
+        // 100% (which used to leave most of a large design scrolled out of view). Computes the
+        // bounding box of every node and zone (not just nodes — an empty zone with no nodes in it
+        // yet still needs to be visible), picks whichever scale fits both axes into the canvas
+        // container's current on-screen size, and scrolls so that box is what you land on. Unlike
+        // the manual +/- zoom buttons (adjustZoom(), clamped to 50%-200% — a sensible range for
+        // hand-stepping), the computed scale here is deliberately *not* floored at 50%: a large
+        // multi-site design can genuinely need well under that to show the whole thing at once, and
+        // that's the entire point of this button.
         function resetZoom() {
-            state.zoom = 1.0;
+            const nodes = Object.values(state.nodes);
+            const zones = Object.values(state.zones);
+            if (nodes.length === 0 && zones.length === 0) {
+                state.zoom = 1.0;
+                updateZoomTransform();
+                canvasContainer.scrollLeft = 0;
+                canvasContainer.scrollTop = 0;
+                return;
+            }
+
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            nodes.forEach(n => {
+                minX = Math.min(minX, n.x);
+                minY = Math.min(minY, n.y);
+                maxX = Math.max(maxX, n.x + NODE_HALF_W * 2);
+                maxY = Math.max(maxY, n.y + NODE_COLLISION_H);
+            });
+            zones.forEach(z => {
+                minX = Math.min(minX, z.x);
+                minY = Math.min(minY, z.y - 24); // the zone's own name/stat chip floats above its border
+                maxX = Math.max(maxX, z.x + z.width);
+                maxY = Math.max(maxY, z.y + z.height);
+            });
+
+            const FIT_MARGIN = 60;
+            const contentWidth = maxX - minX + FIT_MARGIN * 2;
+            const contentHeight = maxY - minY + FIT_MARGIN * 2;
+            const availableWidth = canvasContainer.clientWidth;
+            const availableHeight = canvasContainer.clientHeight;
+
+            state.zoom = Math.max(0.1, Math.min(availableWidth / contentWidth, availableHeight / contentHeight, 2.0));
             updateZoomTransform();
+
+            canvasContainer.scrollLeft = Math.max(0, (minX - FIT_MARGIN) * state.zoom);
+            canvasContainer.scrollTop = Math.max(0, (minY - FIT_MARGIN) * state.zoom);
         }
 
         function updateZoomTransform() {
@@ -1396,7 +1589,7 @@
         let activeDrag = null;
 
         function handleNodeMouseDown(e, nodeId) {
-            if (e.target.closest('button') || e.target.closest('.port-indicator') || state.mode === 'connect' || state.mode === 'zone') {
+            if (e.target.closest('button') || e.target.closest('.port-indicator') || state.mode === 'connect') {
                 return;
             }
 
@@ -1421,8 +1614,8 @@
                         newY = Math.round(newY / 24) * 24;
                     }
 
-                    newX = Math.max(12, Math.min(3300, newX));
-                    newY = Math.max(12, Math.min(3000, newY));
+                    newX = Math.max(12, Math.min(4500, newX));
+                    newY = Math.max(12, Math.min(3400, newY));
 
                     node.x = newX;
                     node.y = newY;
@@ -1479,10 +1672,13 @@
                 cancelDraftConnection();
                 showToast('Cabling cancelled.', 'info');
             } else {
-                // Second endpoint: establish link
+                // Second endpoint: establish link. Deliberately stays in 'connect' mode — Cable
+                // Link is "sticky" so wiring up several connections in a row doesn't need
+                // re-clicking the tool between each one; cancelDraftConnection() alone is enough
+                // to leave it ready for the next pair (clears connectingSourceId, hides the draft
+                // line, stops tracking the mouse).
                 createConnection(state.connectingSourceId, nodeId, state.activeCableType);
                 cancelDraftConnection();
-                setInteractionMode('select');
             }
         }
 
@@ -2949,15 +3145,15 @@
             }
         });
 
-        // Zone drawing: click-drag on empty canvas while in 'zone' mode carves out a new rectangle.
-        // Also works in 'select' mode, as long as the drag actually starts on empty canvas — same
-        // "empty space" target check the click handler above uses to clear selection, so it can
-        // never hijack a drag that starts on a node/cable/zone handle (those already stop the event
-        // from bubbling this far). The dedicated Zone button/mode stays as an explicit, unambiguous
-        // way to do the same thing — this is an added shortcut, not a replacement for it.
+        // Zone drawing: click-drag on empty canvas in 'select' mode carves out a new rectangle —
+        // same "empty space" target check the click handler above uses to clear selection, so it
+        // can never hijack a drag that starts on a node/cable/zone handle (those already stop the
+        // event from bubbling this far). There used to be a dedicated Zone tool/mode as the only
+        // way to do this; it was dropped once this gesture covered the same thing from 'select'
+        // mode without an extra mode switch, so this is the only way to draw a zone now.
         canvasContainer.addEventListener('mousedown', (e) => {
             const isEmptyCanvasTarget = e.target === canvasContainer || e.target.id === 'canvas-world' || e.target.id === 'svg-layer' || e.target.id === 'zones-container';
-            if (state.mode !== 'zone' && !(state.mode === 'select' && isEmptyCanvasTarget)) return;
+            if (state.mode !== 'select' || !isEmptyCanvasTarget) return;
             if (e.target.closest('.zone-drag-handle') || e.target.closest('.zone-resize-handle')) return;
 
             const start = getWorldCoords(e);
@@ -3469,6 +3665,7 @@
             state.zoneCounter = 1;
             state.cableCounter = 1;
             state.ruleCounter = 1;
+            state.designNotes = '';
             clearSelection();
             updateSummaryStats();
             renderVlanHighlightSelect();
@@ -3496,6 +3693,32 @@
                 }
             );
         }
+
+        function confirmLoadMultiSiteDesign() {
+            showConfirmModal(
+                'Load Multi-Site Reference Design',
+                'This replaces everything on the canvas with a 3-site reference architecture sharing one Enterprise level and one Industrial DMZ, with no direct site-to-site routing — a common CNI pattern. Your current design will be permanently lost unless you\'ve saved it. Proceed?',
+                () => {
+                    resetCanvasState();
+                    seedMultiSiteDemoLayout();
+                }
+            );
+        }
+
+        function toggleRecommendedDesignMenu(e) {
+            e.stopPropagation();
+            document.getElementById('recommended-design-menu').classList.toggle('hidden');
+        }
+
+        function closeRecommendedDesignMenu() {
+            document.getElementById('recommended-design-menu').classList.add('hidden');
+        }
+
+        document.addEventListener('click', (e) => {
+            const menu = document.getElementById('recommended-design-menu');
+            if (!menu || menu.classList.contains('hidden')) return;
+            if (!menu.parentElement.contains(e.target)) closeRecommendedDesignMenu();
+        });
 
         function updateSummaryStats() {
             const nodeKeys = Object.keys(state.nodes);
@@ -3694,6 +3917,37 @@
 
         function closeFirewallMatrix() {
             document.getElementById('firewall-modal').classList.add('hidden');
+        }
+
+        function openDesignNotes() {
+            document.getElementById('design-notes-textarea').value = state.designNotes || '';
+            renderDesignNotesVlanTable();
+            document.getElementById('notes-modal').classList.remove('hidden');
+        }
+
+        function closeDesignNotes() {
+            document.getElementById('notes-modal').classList.add('hidden');
+        }
+
+        function updateDesignNotes(value) {
+            state.designNotes = value;
+            scheduleAutosave();
+        }
+
+        function renderDesignNotesVlanTable() {
+            const body = document.getElementById('design-notes-vlan-body');
+            const vlans = Object.values(state.vlans);
+            if (vlans.length === 0) {
+                body.innerHTML = `<tr><td colspan="3" class="py-3 px-2 text-center text-slate-500">No VLANs defined yet — add one via Manage VLANs.</td></tr>`;
+                return;
+            }
+            body.innerHTML = vlans.map(v => `
+                <tr class="border-t border-slate-800">
+                    <td class="py-1.5 px-2 font-mono text-slate-300">${escapeHtml(v.id)}</td>
+                    <td class="py-1.5 px-2 text-slate-200">${v.name ? escapeHtml(v.name) : '—'}</td>
+                    <td class="py-1.5 px-2 font-mono text-slate-400">${v.subnet ? escapeHtml(v.subnet) : '—'}</td>
+                </tr>
+            `).join('');
         }
 
         function exportFirewallMatrixCSV() {
@@ -3944,6 +4198,7 @@
             state.cableCounter = incomingState.cableCounter || incomingState.connections.length + 1;
             state.ruleCounter = incomingState.ruleCounter || 1;
             state.vlans = incomingState.vlans || {};
+            state.designNotes = incomingState.designNotes || '';
             state.connections = (incomingState.connections || []).map(c => ({ vlanIds: [], ...c }));
 
             // Rebuild nodes, skipping any with an archetype this app version doesn't recognize
@@ -4411,6 +4666,162 @@
             clearSelection();
             scheduleAutosave();
             showToast('Loaded a full Purdue-model reference design (L5→L0) with dual hypervisor clusters, granular services, and multi-vendor 3rd-party access!', 'success');
+        }
+
+        // Reference architecture: three sites sharing one Enterprise level and one Industrial
+        // DMZ, with deliberately NO direct connection between any two sites' own devices — every
+        // path between sites transits the shared IDMZ bastion, the same "no direct site-to-site
+        // routing" principle real multi-site CNI/OT reference diagrams call out explicitly.
+        function seedMultiSiteDemoLayout() {
+            const SITE_X = [80, 1630, 3180];
+            const SITES = [
+                { key: 'a', letter: 'A', itVlan: '410', otVlan: '420', subnet: '10.41' },
+                { key: 'b', letter: 'B', itVlan: '510', otVlan: '520', subnet: '10.51' },
+                { key: 'c', letter: 'C', itVlan: '610', otVlan: '620', subnet: '10.61' }
+            ];
+
+            // ---- Shared Level 5 — Enterprise Network (top, spans all sites) ----
+            const [internet, cloudSvc, corpUsers, entraAd, entApps, emailSvc, siemEnt, mfaVpn, ztnaVendor] = seedRow('cloud', 80, 100, [
+                { label: 'Internet (Public)' }
+            ]).concat(
+                seedRow('cloud', 80 + 238, 100, [{ label: 'Cloud Services (SaaS/IaaS)' }]),
+                seedRow('user', 80 + 238 * 2, 100, [{ label: 'Corporate Users', userType: 'corp_user' }]),
+                seedRow('server', 80 + 238 * 3, 100, [{ label: 'Entra ID / Active Directory', role: 'ad' }]),
+                seedRow('server', 80 + 238 * 4, 100, [{ label: 'Enterprise Applications', role: 'webapp' }]),
+                seedRow('server', 80 + 238 * 5, 100, [{ label: 'Email / Web Services', role: 'mail' }]),
+                seedRow('siem', 80 + 238 * 6, 100, [{ label: 'Enterprise SOC / SIEM' }]),
+                seedRow('vpn', 80 + 238 * 7, 100, [{ label: 'MFA / VPN Services' }]),
+                seedRow('vpn', 80 + 238 * 8, 100, [{ label: 'Vendor Remote Access (ZTNA Broker)' }])
+            );
+            const [wanR1, wanR2] = seedRow('router', 80, 260, [
+                { label: 'WAN / SD-WAN Router 01 (HA Pair)' },
+                { label: 'WAN / SD-WAN Router 02 (HA Pair)' }
+            ]);
+            createZone(50, 60, 4400, 400, { id: 'zone_ms_l5', label: 'Level 5 — Enterprise Network (Shared)', level: 'l5', accessRoles: [], x: 50, y: 60, width: 4400, height: 400 });
+
+            // ---- Shared Level 3.5 — Industrial DMZ (spans all sites, no direct site-to-site path) ----
+            const [bastionIdmz, pamGw, remoteBroker, proxyGw, backupStage, patchRelay, logCollector, fileGw] = seedRow('server', 80, 550, [
+                { label: 'Bastion / Jump Host', role: 'bastion' }
+            ]).concat(
+                seedRow('server', 80 + 238, 550, [{ label: 'PAM Gateway', role: 'pam' }]),
+                seedRow('server', 80 + 238 * 2, 550, [{ label: 'Remote Access Broker', role: 'broker' }]),
+                seedRow('server', 80 + 238 * 3, 550, [{ label: 'Proxy / IoT Gateway', role: 'proxy' }]),
+                seedRow('server', 80 + 238 * 4, 550, [{ label: 'Backup Staging Server', role: 'backup_staging' }]),
+                seedRow('server', 80 + 238 * 5, 550, [{ label: 'Patch / AV Relay', role: 'patch_relay' }]),
+                seedRow('server', 80 + 238 * 6, 550, [{ label: 'Log Collector / Monitoring', role: 'monitoring' }]),
+                seedRow('server', 80 + 238 * 7, 550, [{ label: 'Data Transfer / File Gateway', role: 'file_gateway' }])
+            );
+            const [idmzSwitch] = seedRow('switch', 80 + 238 * 8, 550, [{ label: 'IDMZ Management Network' }]);
+            createZone(50, 510, 4400, 220, { id: 'zone_ms_idmz', label: 'Level 3.5 — Industrial DMZ (Shared)', level: 'l35', accessRoles: [], x: 50, y: 510, width: 4400, height: 220 });
+
+            // ---- Shared-level cabling ----
+            createConnection(wanR1.id, wanR2.id, 'fiber');
+            [internet, cloudSvc, corpUsers, entraAd, entApps, emailSvc, siemEnt, mfaVpn, ztnaVendor].forEach(n => createConnection(wanR1.id, n.id, 'copper'));
+            createConnection(wanR1.id, bastionIdmz.id, 'fiber');
+            createConnection(wanR2.id, bastionIdmz.id, 'fiber');
+            [pamGw, remoteBroker, proxyGw, backupStage, patchRelay, logCollector, fileGw, idmzSwitch].forEach(n => createConnection(bastionIdmz.id, n.id, 'copper'));
+
+            createVlan('99', 'Mgmt-OOB (Shared)', '10.99.0.0/16');
+            toggleNodeVlan(bastionIdmz.id, '99', true);
+            toggleNodeVlan(idmzSwitch.id, '99', true);
+
+            // Builds one site's full IT/OT stack (Level 4 down to Level 0) and wires it up
+            // internally. The ONLY connection leaving this site touches the shared IDMZ bastion —
+            // callers must never call createConnection() between two different sites' own nodes.
+            function buildSite(site) {
+                const x = SITE_X[SITES.indexOf(site)];
+                const y = { fw1: 820, l4: 950, fw2: 1100, l3: 1230, l12: 1380, l0: 1530 };
+
+                const [fwIT] = seedRow('firewall', x, y.fw1, [{ label: `Site ${site.letter} IT/IDMZ Firewall (Outbound Only)` }]);
+
+                const [l4Switch, l4User, l4Server, l4Backup] = seedRow('switch', x, y.l4, [{ label: `Site ${site.letter} IT Switch` }]).concat(
+                    seedRow('user', x + 238, y.l4, [{ label: `Site ${site.letter} IT Users`, userType: 'corp_user' }]),
+                    seedRow('server', x + 238 * 2, y.l4, [{ label: `Site ${site.letter} IT Services Server`, role: 'webapp' }]),
+                    seedRow('backup', x + 238 * 3, y.l4, [{ label: `Site ${site.letter} Backup Appliance` }])
+                );
+
+                const [fwOT] = seedRow('firewall', x, y.fw2, [{ label: `Site ${site.letter} OT Internal Firewall/IPS (Default Deny)` }]);
+
+                const [l3Switch, bmsSup, scadaSup, engWs, otMon] = seedRow('switch', x, y.l3, [{ label: `Site ${site.letter} OT Supervisory Switch` }]).concat(
+                    seedRow('server', x + 238, y.l3, [{ label: `Site ${site.letter} BMS/DCIM Supervisor`, role: 'bms' }]),
+                    seedRow('server', x + 238 * 2, y.l3, [{ label: `Site ${site.letter} SCADA/EMS Supervisor`, role: 'ems' }]),
+                    seedRow('server', x + 238 * 3, y.l3, [{ label: `Site ${site.letter} Engineering Workstation`, role: 'engineering' }]),
+                    seedRow('server', x + 238 * 4, y.l3, [{ label: `Site ${site.letter} OT Monitoring Dashboard`, role: 'monitoring' }])
+                );
+
+                const [fieldSw, plcNode, ioNode, driveNode] = seedRow('fieldswitch', x, y.l12, [{ label: `Site ${site.letter} Field Switch (DIN-Rail)` }]).concat(
+                    seedRow('plc', x + 238, y.l12, [{ label: `Site ${site.letter} Controller / PLC` }]),
+                    seedRow('iomodule', x + 238 * 2, y.l12, [{ label: `Site ${site.letter} I/O Module` }]),
+                    seedRow('drive', x + 238 * 3, y.l12, [{ label: `Site ${site.letter} Drive / VFD` }])
+                );
+
+                const [chillerN, pumpN, genN, upsN, sensorN] = seedRow('chiller', x, y.l0, [{ label: `Site ${site.letter} CRAH Unit` }]).concat(
+                    seedRow('pump', x + 238, y.l0, [{ label: `Site ${site.letter} Process Pump` }]),
+                    seedRow('generator', x + 238 * 2, y.l0, [{ label: `Site ${site.letter} Diesel Genset` }]),
+                    seedRow('ups', x + 238 * 3, y.l0, [{ label: `Site ${site.letter} UPS` }]),
+                    seedRow('sensor', x + 238 * 4, y.l0, [{ label: `Site ${site.letter} Process Sensor Array` }])
+                );
+
+                createConnection(fwIT.id, l4Switch.id, 'fiber');
+                createConnection(l4Switch.id, l4User.id, 'copper');
+                createConnection(l4Switch.id, l4Server.id, 'copper');
+                createConnection(l4Switch.id, l4Backup.id, 'copper');
+                const cItOt = createConnection(l4Switch.id, fwOT.id, 'fiber');
+                createConnection(fwOT.id, l3Switch.id, 'fiber');
+                createConnection(l3Switch.id, bmsSup.id, 'copper');
+                createConnection(l3Switch.id, scadaSup.id, 'copper');
+                createConnection(l3Switch.id, engWs.id, 'copper');
+                createConnection(l3Switch.id, otMon.id, 'copper');
+                createConnection(l3Switch.id, fieldSw.id, 'fiber');
+                createConnection(fieldSw.id, plcNode.id, 'copper');
+                createConnection(fieldSw.id, ioNode.id, 'copper');
+                createConnection(fieldSw.id, driveNode.id, 'copper');
+                createConnection(ioNode.id, sensorN.id, 'bms');
+                createConnection(ioNode.id, chillerN.id, 'bms');
+                createConnection(driveNode.id, pumpN.id, 'bms');
+                createConnection(driveNode.id, genN.id, 'bms');
+                createConnection(plcNode.id, upsN.id, 'bms');
+
+                createVlan(site.itVlan, `Site ${site.letter} IT-Access`, `${site.subnet}.10.0/24`);
+                createVlan(site.otVlan, `Site ${site.letter} OT-Access`, `${site.subnet}.20.0/24`);
+                toggleConnectionVlan(cItOt.id, site.itVlan, true);
+                toggleConnectionVlan(cItOt.id, site.otVlan, true);
+                toggleNodeVlan(l4Switch.id, site.itVlan, true);
+                toggleNodeVlan(l3Switch.id, site.otVlan, true);
+                toggleNodeVlan(fieldSw.id, site.otVlan, true);
+
+                const itZoneId = `zone_ms_${site.key}_it`;
+                const otZoneId = `zone_ms_${site.key}_ot`;
+                createZone(x - 40, 780, 1000, 300, { id: itZoneId, label: `Site ${site.letter} — IT / Level 4`, level: 'l4', accessRoles: [], x: x - 40, y: 780, width: 1000, height: 300 });
+                createZone(x - 40, 1090, 1250, 600, { id: otZoneId, label: `Site ${site.letter} — OT / Levels 3-0`, level: 'l3', accessRoles: [], x: x - 40, y: 1090, width: 1250, height: 600 });
+
+                toggleZoneAccessRole(itZoneId, 'network_ops', true);
+                toggleZoneAccessRole(itZoneId, 'dc_manager', true);
+                toggleZoneAccessRole(itZoneId, 'auditor', true);
+                toggleZoneAccessRole(otZoneId, 'network_ops', true);
+                toggleZoneAccessRole(otZoneId, 'facilities_tech', true);
+                toggleZoneAccessRole(otZoneId, 'ot_vendor_scada', true);
+
+                seedAccessRule(fwIT, { action: 'allow', protocol: 'tcp', source: 'Industrial DMZ (Shared)', destination: `Site ${site.letter} IT (L4)`, port: '443,1433', note: 'HTTPS mgmt, SQL replication via shared bastion only' });
+                seedAccessRule(fwIT, { action: 'deny', protocol: 'any', source: `Site ${site.letter}`, destination: 'Other Sites', note: 'No direct site-to-site routing — all cross-site traffic must transit the shared Industrial DMZ' });
+
+                return { fwIT };
+            }
+
+            const siteRefs = SITES.map(buildSite);
+            siteRefs.forEach(({ fwIT }) => createConnection(bastionIdmz.id, fwIT.id, 'fiber'));
+
+            toggleZoneAccessRole('zone_ms_l5', 'network_ops', true);
+            toggleZoneAccessRole('zone_ms_l5', 'dc_manager', true);
+            toggleZoneAccessRole('zone_ms_l5', 'corp_user', true);
+            toggleZoneAccessRole('zone_ms_idmz', 'network_ops', true);
+            toggleZoneAccessRole('zone_ms_idmz', 'security_officer', true);
+
+            state.zoneCounter = 9;
+
+            clearSelection();
+            scheduleAutosave();
+            showToast('Loaded a 3-site reference design sharing one Enterprise level and one Industrial DMZ — no direct site-to-site routing!', 'success');
         }
 
         window.addEventListener('DOMContentLoaded', bootApp);
